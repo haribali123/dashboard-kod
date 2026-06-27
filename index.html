@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang='hu'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Supply Link</title>
+    <script src='https://cdn.tailwindcss.com'></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: 'var(--bg-primary)',
+                        card: 'var(--bg-card)',
+                        main: 'var(--text-main)',
+                        muted: 'var(--text-muted)',
+                        accent: 'var(--accent-color)',
+                        'border-theme': 'var(--border-color)',
+                    }
+                }
+            }
+        }
+    </script>
+    <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <style type="text/tailwindcss">
+        @layer base {
+            :root {
+                --bg-primary: #f8fafc;
+                --bg-card: #ffffff;
+                --border-color: #e2e8f0;
+                --text-main: #0f172a;
+                --text-muted: #64748b;
+                --accent-color: #00A79D;
+            }
+            .theme-webspiring-light {
+                --bg-primary: #f8fafc;
+                --bg-card: #ffffff;
+                --border-color: #e2e8f0;
+                --text-main: #0f172a;
+                --text-muted: #64748b;
+                --accent-color: #00A79D;
+            }
+            .theme-dark {
+                --bg-primary: #111827;
+                --bg-card: #1f2937;
+                --border-color: #374151;
+                --text-main: #f3f4f6;
+                --text-muted: #9ca3af;
+                --accent-color: #3b82f6;
+            }
+            .theme-midnight-black {
+                --bg-primary: #000000;
+                --bg-card: #111111;
+                --border-color: #1f2937;
+                --text-main: #f3f4f6;
+                --text-muted: #9ca3af;
+                --accent-color: #9ca3af;
+            }
+        }
+        .sidebar-item { @apply flex items-center p-3 text-muted hover:bg-accent hover:text-white rounded-lg transition-colors cursor-pointer; }
+        .sidebar-item.active { 
+            background-color: var(--accent-color) !important;
+            color: #ffffff !important;
+            font-weight: 600;
+        }
+        
+        .theme-card { @apply relative cursor-pointer rounded-xl border-2 transition-all overflow-hidden p-3; }
+        .theme-card.active { @apply border-accent ring-1 ring-accent; }
+        .theme-card .checkmark { @apply absolute top-2 right-2 hidden; }
+        .theme-card.active .checkmark { @apply block; }
+    </style>
+</head>
+<body class='theme-webspiring-light bg-primary text-main min-h-screen font-sans flex'>
+    <!-- Sidebar -->
+    <aside class='w-64 bg-primary border-r border-border-theme fixed inset-y-0 left-0 flex flex-col'>
+        <div class='p-6 border-b border-border-theme'>
+            <h1 class='text-2xl mb-6 flex items-center'>
+                <span class="text-[#0f172a] font-black mr-1.5 tracking-tight">SUPPLY</span> 
+                <svg viewBox="0 0 54 24" class="h-[0.72em] fill-[#00A79D]">
+                    <!-- L -->
+                    <rect x="0" y="0" width="3.5" height="24" />
+                    <rect x="0" y="20.5" width="11" height="3.5" />
+                    <!-- I -->
+                    <rect x="16" y="0" width="3.5" height="24" />
+                    <!-- N -->
+                    <rect x="24.5" y="0" width="3.5" height="24" />
+                    <polygon points="24.5,0 28.5,0 37.5,24 33.5,24" />
+                    <rect x="34" y="0" width="3.5" height="24" />
+                    <!-- < (chevron) -->
+                    <polygon points="53,0 48.5,0 40,12 48.5,24 53,24 44.5,12" />
+                </svg>
+            </h1>
+            <label for='shopSwitcher' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Bolt kiválasztása</label>
+            <select id='shopSwitcher' class='w-full bg-card border border-border-theme rounded-lg p-2 text-sm text-main focus:ring-2 focus:ring-accent outline-none'>
+                <option value='' disabled selected>Boltok betöltése...</option>
+            </select>
+        </div>
+        
+        <nav class='flex-grow p-4 space-y-1 overflow-y-auto'>
+            <div id='navDashboard' class='sidebar-item'>
+                <span class='ml-3'>Áttekintő</span>
+            </div>
+            <div id='navUpload' class='sidebar-item active'>
+                <span class='ml-3'>Új feltöltés</span>
+            </div>
+            <div id='navPreview' class='sidebar-item'>
+                <span class='ml-3'>Előnézet</span>
+            </div>
+            <div id='navHistory' class='sidebar-item'>
+                <span class='ml-3'>Előzmények</span>
+            </div>
+            <div id='navSettings' class='sidebar-item'>
+                <span class='ml-3'>Beállítások</span>
+            </div>
+        </nav>
+
+        <div class='p-4 border-t border-border-theme'>
+            <div class='flex items-center space-x-3 p-2'>
+                <div class='w-8 h-8 rounded-full bg-accent flex items-center justify-center font-bold text-white'>U</div>
+                <div>
+                    <p class='text-sm font-medium text-main'>Teszt Felhasználó</p>
+                    <p class='text-xs text-muted'>Ingyenes csomag</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class='ml-64 flex-grow flex flex-col bg-primary'>
+        <header class='p-6 border-b border-border-theme flex justify-between items-center sticky top-0 bg-primary z-10'>
+            <div class='flex flex-col'>
+                <h2 id='viewTitle' class='text-2xl font-bold text-main'>Új feltöltés</h2>
+                <p id='welcomeMessage' class='text-muted text-sm mt-1 hidden'>Üdvözöljük! Az automatizáció zavartalan. Ezen a héten jelentős manuális munkát takarított meg az import rendszerrel.</p>
+            </div>
+            <div class='flex items-center space-x-4'>
+                <div class='flex items-center bg-card/50 border border-border-theme px-3 py-1.5 rounded-full'>
+                    <span class='relative flex h-2 w-2 mr-2'>
+                        <span class='animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75'></span>
+                        <span class='relative inline-flex rounded-full h-2 w-2 bg-green-500'></span>
+                    </span>
+                    <span class='text-xs font-medium text-muted'>Rendszer állapota: Online</span>
+                </div>
+                <div class='bg-card px-4 py-2 rounded-lg border border-border-theme flex items-center whitespace-nowrap'>
+    <span class='text-muted mr-2 text-sm'>Egyenleg:</span>
+    <span id='balanceDisplay' class='font-mono text-green-600 font-bold whitespace-nowrap'>...</span>
+</div>
+            </div>
+        </header>
+
+        <!-- Dashboard View -->
+        <div id='dashboardView' class='p-8 flex-grow hidden'>
+            <!-- Stat Cards -->
+            <div class='grid grid-cols-1 md:grid-cols-4 gap-6 mb-8'>
+                <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <p class='text-sm text-muted font-medium'>Összes feltöltés</p>
+                    <p id='statTotalUploads' class='text-2xl font-bold mt-1 text-main'>0</p>
+                </div>
+                <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <p class='text-sm text-muted font-medium'>Jelenlegi egységár</p>
+                    <p id='statTokensUsed' class='text-2xl font-bold mt-1 text-accent'>0</p>
+                </div>
+                <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <p class='text-sm text-muted font-medium'>Megtakarított idő</p>
+                    <p id='statTimeSaved' class='text-2xl font-bold mt-1 text-green-600'>0h</p>
+                </div>
+                <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <p class='text-sm text-muted font-medium'>Havi kiadás</p>
+                    <p id='statCostSaved' class='text-2xl font-bold mt-1' style='color: #F59E0B;'>$0</p>
+                </div>
+            </div>
+
+            <div class="bg-card p-6 rounded-xl border border-border-theme shadow-lg mt-6 mb-8 whitespace-nowrap">
+                <h3 class="text-lg font-bold text-main mb-2">Árkategória előrehaladás</h3>
+                <div class="flex justify-between text-sm text-muted mb-2">
+                    <span id="progressText" class="font-bold">0 / 100 Termék</span>
+                    <span id="progressSubtext" class="text-accent">Még 100 termék a következő kedvezményes árkategóriáig!</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-4">
+                    <div id="progressBar" class="bg-accent h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class='grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8'>
+                <div class='lg:col-span-2 bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <div class='flex justify-between items-center mb-6'>
+                        <h3 class='font-semibold flex items-center text-main'>
+                            <span class='w-2 h-2 bg-accent rounded-full mr-2'></span>
+                            Feltöltési trendek
+                        </h3>
+                        <div id='timeFilters' class='flex bg-primary p-1 rounded-lg border border-border-theme'>
+                            <button data-time='daily' class='px-3 py-1 text-xs rounded-md text-muted hover:text-main transition'>Napi</button>
+                            <button data-time='weekly' class='px-3 py-1 text-xs rounded-md bg-accent text-white font-medium'>Heti</button>
+                            <button data-time='monthly' class='px-3 py-1 text-xs rounded-md text-muted hover:text-main transition'>Havi</button>
+                        </div>
+                    </div>
+                    <div class='h-64'>
+                        <canvas id='trendChart'></canvas>
+                    </div>
+                </div>
+                <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <h3 class='font-semibold mb-6 flex items-center text-main'>
+                        <span class='w-2 h-2 bg-green-500 rounded-full mr-2'></span>
+                        Sikeres vs. Hibás
+                    </h3>
+                    <div class='h-64 flex items-center justify-center'>
+                        <canvas id='ratioChart'></canvas>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- CTA -->
+            <div class='flex justify-start'>
+                <button id='btnNewUploadCTA' class='w-64 bg-accent hover:opacity-90 text-white font-bold py-4 rounded-xl transition transform hover:scale-[1.005] active:scale-95 shadow-xl shadow-accent/20'>
+                    + Új feltöltés
+                </button>
+            </div>
+        </div>
+
+        <div id='uploadView' class='p-8 flex-grow'>
+    <div class='max-w-3xl mx-auto bg-card rounded-xl shadow-2xl border border-border-theme overflow-hidden'>
+        
+        <div class='p-6 border-b border-border-theme'>
+            <h3 class='text-lg font-semibold text-main'>Import beállítások</h3>
+            <p class='text-sm text-muted'>Állítsa be a termék import feladatot.</p>
+        </div>
+
+        <form id='importForm' class='p-6 space-y-8'>
+            
+            <div class="space-y-4">
+                <label class='block text-xs font-bold text-muted uppercase tracking-widest'>Feldolgozási mód</label>
+                <div class='flex flex-wrap gap-4'>
+                    <button type='button' id='modeAuto' class='mode-btn relative flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-4 rounded-xl border-2 transition-all group/btn bg-accent text-white shadow-lg shadow-accent/20 border-accent'>
+                        <span class="font-bold">Termék Kinyerés</span>
+                        <div class="relative group/tooltip">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60 group-hover/btn:opacity-100 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 p-2 bg-gray-900 text-white text-[10px] rounded-lg shadow-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-20 pointer-events-none font-medium text-center leading-relaxed">
+                                A rendszer automatikusan kinyeri az összes termékadatot beavatkozás nélkül.
+                                <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button type='button' id='modeImport' class='mode-btn relative flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-4 rounded-xl border-2 border-border-theme bg-primary text-muted hover:border-accent/50 transition-all group/btn'>
+                        <span class="font-bold">Excel import</span>
+                    </button>
+                </div>
+                <input type='hidden' id='categoryMode' name='categoryMode' value='automatic'>
+            </div>
+
+            <!-- EXCEL IMPORT PANEL (rejtett alapból, csak Excel módban jelenik meg) -->
+            <div id="excelImportPanel" class="hidden">
+                <label class='block text-xs font-bold text-muted uppercase tracking-widest mb-3'>Excel fájl kiválasztása</label>
+                <label for="excelFile" class="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-border-theme rounded-xl cursor-pointer bg-primary hover:border-accent/60 hover:bg-accent/5 transition-all group">
+                    <div class="flex flex-col items-center justify-center gap-2 text-muted group-hover:text-accent transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span id="excelFileName" class="text-sm font-medium">Kattints vagy húzz ide egy .xlsx fájlt</span>
+                        <span class="text-xs opacity-60">.xlsx, .xls formátum támogatott</span>
+                    </div>
+                    <input type="file" id="excelFile" name="excelFile" accept=".xlsx,.xls" class="hidden">
+                </label>
+            </div>
+
+            <div id="urlInputPanel" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-card p-5 rounded-xl border border-border-theme shadow-sm space-y-3">
+                    <div class="flex justify-between items-center">
+                        <label for='urls' class='block text-xs font-bold text-muted uppercase tracking-widest'>Termék URL-ek</label>
+                        <span class="bg-accent/10 text-accent text-[10px] px-2 py-0.5 rounded-full font-bold border border-accent/20 uppercase">Linkek soronként</span>
+                    </div>
+                    <textarea id='urls' name='urls' rows='6' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition placeholder:text-muted/40' placeholder='https://example.com/product/1'></textarea>
+                    <div id="productUrlPreviewList" class="space-y-2 mt-2"></div>
+                    <div class='flex justify-between items-center'>
+                        <span id='productUrlCount' class='text-[10px] text-muted font-medium italic'>0 termék észlelve</span>
+                    </div>
+                </div>
+
+                <div class="bg-card p-5 rounded-xl border border-border-theme shadow-sm space-y-3">
+                    <div class="flex justify-between items-center">
+                        <label for='categoryUrls' class='block text-xs font-bold text-muted uppercase tracking-widest'>Kategória URL-ek</label>
+                        <span class="bg-green-500/10 text-green-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-green-500/20 uppercase">Automatikus bővítés</span>
+                    </div>
+                    <textarea id='categoryUrls' name='categoryUrls' rows='6' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition placeholder:text-muted/40' placeholder='https://example.com/collection/all'></textarea>
+                    <div id="categoryUrlPreviewList" class="space-y-2 mt-2"></div>
+                    <div class='flex justify-between items-center'>
+                        <span id='categoryUrlCount' class='text-[10px] text-muted font-medium italic'>0 kategória észlelve</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class='grid grid-cols-1 md:grid-cols-2 gap-8 pt-4'>
+                <div>
+                    <label for='languages' class='block text-sm font-medium text-muted mb-2'>Célnyelvek</label>
+                    <div id='languagePills' class='flex flex-wrap gap-2 mb-3'></div>
+                    <select id='languages' name='languages' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-main focus:ring-2 focus:ring-accent outline-none transition'>
+                        <option value='' disabled selected>További fordítás hozzáadása...</option>
+                        <option value='English'>English</option>
+                        <option value='Hungarian'>Hungarian</option>
+                        <option value='German'>German</option>
+                        <option value='French'>French</option>
+                        <option value='Spanish'>Spanish</option>
+                    </select>
+                </div>
+                <div>
+                    <label for='internalNote' class='block text-sm font-medium text-muted mb-2'>Belső megjegyzés</label>
+                    <textarea id='internalNote' name='internalNote' rows='4' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='Projektspecifikus megjegyzések...'></textarea>
+                </div>
+            </div>
+
+            <div id="costSummaryCard" class="hidden max-w-md mx-auto mt-8 mb-6 p-6 border rounded-2xl shadow-lg transition-colors duration-300" style="background-color: var(--bg-card); border-color: var(--border-color);">
+                <h3 class="text-xl font-extrabold mb-5 flex items-center gap-2" style="color: var(--text-main);">
+                    <span class="text-2xl">đź›’</span> Import összesítő
+                </h3>
+
+                <div class="space-y-3 text-sm" style="color: var(--text-muted);">
+                    <div class="flex justify-between items-center">
+                        <span>Érvényes URL-ek száma:</span> 
+                        <span id="summaryUrlCount" class="font-bold text-base" style="color: var(--text-main);">0</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>Összesen kinyerendő termék:</span> 
+                        <span id="summaryProductCount" class="font-bold text-base" style="color: var(--text-main);">0</span>
+                    </div>
+                    <div class="flex justify-between items-center pb-4 border-b" style="border-color: var(--border-color);">
+                        <span>Egységárad:</span> 
+                        <span id="summaryTierPrice" class="font-bold text-base" style="color: var(--text-main);">0.00 â‚¬</span>
+                    </div>
+
+                    <div class="flex justify-between items-center mt-4 p-4 rounded-xl border" style="background-color: var(--bg-primary); border-color: var(--border-color);">
+                        <span class="text-lg font-bold" style="color: var(--text-main);">Becsült összköltség:</span> 
+                        <span id="summaryTotalCost" class="text-2xl font-black" style="color: var(--accent-color);">0.00 â‚¬</span>
+                    </div>
+                </div>
+            </div> 
+
+            <div id="submitButtonContainer" class="mt-6 flex justify-center">
+                <button type='submit' class='w-auto px-8 py-2.5 bg-accent hover:opacity-90 text-white font-bold rounded-xl transition transform hover:scale-105 active:scale-95 shadow-lg shadow-accent/20'>
+                    Import indítása
+                </button>
+            </div>
+
+        </form> <div id="importProgressContainer" class="hidden flex-col items-center justify-center py-12 bg-card rounded-xl border border-border-theme mt-8 shadow-lg">
+            <div id="importSpinner" class="w-16 h-16 border-4 border-background border-t-accent rounded-full animate-spin mb-6"></div>
+            <svg id="importSuccessIcon" xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 text-green-500 hidden mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 id="importStatusText" class="text-2xl font-bold text-main mb-2">URL-ek elemzése folyamatban...</h3>
+            <p id="importSubStatusText" class="text-muted text-base mb-8">Kérjük várjon, amíg kinyerjük a termékadatokat.</p>
+            <button id="btnGoToPreview" class="hidden bg-accent text-white px-8 py-3 rounded-lg font-bold hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2">
+                Kinyert termékek megtekintése
+            </button>
+        </div>
+    </div>
+</div>
+
+
+
+
+        </div>
+
+
+
+<!-- preview -->
+
+        <div id='previewView' class='p-8 flex-grow hidden'>
+            <div class='flex h-full gap-6'>
+                <div class='w-1/3 bg-card rounded-xl border border-border-theme flex flex-col overflow-hidden shadow-lg'>
+                    <div class='p-4 border-b border-border-theme bg-primary'>
+                        <h3 class='font-semibold text-main'>Függőben lévő feladatok</h3>
+                        <p class='text-xs text-muted'>Válasszon feladatot szerkesztéshez</p>
+                    </div>
+                    <div id='pendingJobsList' class='flex-grow overflow-y-auto divide-y divide-border-theme'>
+                        <div class='p-8 text-center text-muted'>
+                            <p class='text-sm'>Nincs függőben lévő feladat</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id='editorCard' class='flex-grow bg-card rounded-xl border border-border-theme flex flex-col overflow-hidden shadow-lg opacity-50 pointer-events-none transition-opacity'>
+                    <div class='p-4 border-b border-border-theme bg-primary flex justify-between items-center'>
+                        <div class="flex items-center gap-3">
+                            <button id="btnUndo" class="hidden p-1.5 rounded-lg text-muted hover:bg-border-theme hover:text-main transition-colors" title="Undo (VisszavonĂˇs)">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <h3 class='font-semibold text-main'>Termék szerkesztő</h3>
+                        </div>
+                        <span id='editorJobId' class='text-xs font-mono text-muted'>Nincs kiválasztott feladat</span>
+                    </div>
+                    
+                    <div class='p-6 flex-grow overflow-y-auto space-y-6'>
+                        <div class='flex gap-6'>
+                            <div class='w-1/3'>
+                                <label class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Termék kép</label>
+                                <div id='editorImagePlaceholder' class='aspect-square bg-primary rounded-lg border-2 border-dashed border-border-theme flex items-center justify-center text-muted'>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                                <img id='editorImage' class='hidden aspect-square w-full object-cover rounded-lg border border-border-theme shadow-md' src='' alt='Product preview'>
+                                
+                                <div id='editorThumbnails' class='hidden flex gap-2 mt-3 overflow-x-auto pb-2'>
+                                    </div>
+
+                                <button id='btnUploadImage' type='button' class='mt-3 w-full bg-primary border border-border-theme hover:bg-card text-main text-sm font-medium py-2 rounded-lg transition flex items-center justify-center gap-2' onclick="document.getElementById('imageUploader').click()">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    Kép feltöltése
+                                </button>
+                            </div>
+                            
+                            <div class='flex-grow space-y-4'>
+                                <div>
+                                    <label for='editorTitle' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Termék neve</label>
+                                    <input type='text' id='editorTitle' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='Írja be a termék nevét'>
+                                </div>
+                                
+                                <div>
+                                    <label for='editorSku' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>SKU</label>
+                                    <input type='text' id='editorSku' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='SKU megadása'>
+                                </div>
+
+                                <div>
+                                    <label for='editorNetPrice' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Nettó Ár</label>
+                                    <div class='relative'>
+                                        <span id='currencySymbolNet' class='absolute left-3 top-3 text-muted'>$</span>
+                                        <input type='number' id='editorNetPrice' step='0.01' class='w-full bg-primary border border-border-theme rounded-lg p-3 pl-8 text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='0.00'>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label for='editorPrice' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Bruttó Ár</label>
+                                    <div class='relative'>
+                                        <span id='currencySymbol' class='absolute left-3 top-3 text-muted'>$</span>
+                                        <input type='number' id='editorPrice' step='0.01' class='w-full bg-primary border border-border-theme rounded-lg p-3 pl-8 text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='0.00'>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label for='editorShortDesc' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Rövid leírás</label>
+                                    <textarea id='editorShortDesc' rows='3' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-main focus:ring-2 focus:ring-accent outline-none transition resize-none' placeholder='Rövid összefoglaló...'></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for='editorLongDesc' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Részletes leírás</label>
+                            <textarea id='editorLongDesc' rows='8' class='w-full bg-primary border border-border-theme rounded-lg p-3 text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='Részletes leírás...'></textarea>
+                        </div>
+
+                        <!-- ÁFA Kalkulátor Simple -->
+                        <div class='bg-card p-4 rounded-lg border border-border-theme mt-2'>
+                            <h4 class='text-sm font-semibold mb-3 flex items-center text-main'>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                ÁFA Kalkulátor
+                            </h4>
+                            <div class='flex items-end gap-3'>
+                                <div class='flex-grow'>
+                                    <label class='block text-xs text-muted mb-1'>Forrás (Honnan)</label>
+                                    <select id='vatSourceCountrySimple' class='w-full bg-primary border border-border-theme rounded-lg p-2 text-sm text-main focus:ring-2 focus:ring-accent outline-none'>
+                                        <option value='0'>Nincs ÁFA (0%)</option>
+                                        <option value='27'>Magyarország (27%)</option>
+                                        <option value='19'>Németország (19%)</option>
+                                        <option value='20'>Ausztria (20%)</option>
+                                        <option value='21' selected>Hollandia (21%)</option>
+                                        <option value='20'>Franciaország (20%)</option>
+                                        <option value='22'>Olaszország (22%)</option>
+                                        <option value='21'>Spanyolország (21%)</option>
+                                        <option value='23'>Lengyelország (23%)</option>
+                                        <option value='19'>Románia (19%)</option>
+                                        <option value='20'>Szlovákia (20%)</option>
+                                    </select>
+                                </div>
+                                <div class='flex-grow'>
+                                    <label class='block text-xs text-muted mb-1'>Cél (Hová)</label>
+                                    <select id='vatTargetCountrySimple' class='w-full bg-primary border border-border-theme rounded-lg p-2 text-sm text-main focus:ring-2 focus:ring-accent outline-none'>
+                                        <option value='0'>Nincs ÁFA (0%)</option>
+                                        <option value='27' selected>Magyarország (27%)</option>
+                                        <option value='19'>Németország (19%)</option>
+                                        <option value='20'>Ausztria (20%)</option>
+                                        <option value='21'>Hollandia (21%)</option>
+                                        <option value='20'>Franciaország (20%)</option>
+                                        <option value='22'>Olaszország (22%)</option>
+                                        <option value='21'>Spanyolország (21%)</option>
+                                        <option value='23'>Lengyelország (23%)</option>
+                                        <option value='19'>Románia (19%)</option>
+                                        <option value='20'>Szlovákia (20%)</option>
+                                    </select>
+                                </div>
+                                <button id='btnApplyVatCalcSimple' class='bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition'>
+                                    Számol
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id='editorSpecsContainer' class='hidden'>
+                            <label class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Kinyert specifikációk</label>
+                            <div id='editorSpecs' class='flex flex-wrap gap-2'>
+                                </div>
+                        </div>
+                    </div>
+
+                    <div class='p-6 border-t border-border-theme bg-primary flex gap-4'>
+                        <button id='btnApprove' class='flex-grow bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-lg transition transform hover:scale-[1.01] active:scale-95 shadow-lg shadow-green-900/20'>
+                            Jóváhagyás &amp; Közzététel
+
+                        </button>
+                        <button id='btnDiscard' class='px-8 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-600/50 font-bold py-4 rounded-lg transition transform hover:scale-[1.01] active:scale-95'>
+                            Elutasítás
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Details View -->
+        <div id='jobDetailsView' class='p-8 flex-grow hidden'>
+            <div class='max-w-4xl mx-auto'>
+                <button id='btnBackToDashboard' class='flex items-center text-muted hover:text-main transition mb-6 group'>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Vissza az Áttekintőhöz
+                </button>
+                
+                <div class='bg-card rounded-xl border border-border-theme shadow-lg overflow-hidden'>
+                    <div class='p-6 border-b border-border-theme flex justify-between items-center'>
+                        <div>
+                            <h3 class='text-xl font-bold text-main'>Feladat részletei</h3>
+                            <p id='detailsJobId' class='text-sm text-muted font-mono mt-1'></p>
+                        </div>
+                        <div id='detailsStatusBadge' class='px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider'>
+                            <!-- Status badge -->
+                        </div>
+                    </div>
+                    
+                    <div class='p-6'>
+                        <h4 class='text-sm font-semibold text-muted uppercase tracking-wider mb-4'>Forrás URL-ek</h4>
+                        <div class='bg-primary rounded-lg border border-border-theme overflow-hidden'>
+                            <div class='max-h-96 overflow-y-auto'>
+                                <table class='w-full text-left'>
+                                    <thead class='bg-card text-muted text-xs uppercase tracking-wider sticky top-0'>
+                                        <tr>
+                                            <th class='px-4 py-3 font-medium'>#</th>
+                                            <th class='px-4 py-3 font-medium'>URL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id='detailsSourceUrls' class='divide-y divide-border-theme'>
+                                        <!-- Dynamic rows -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History View -->
+        <div id='historyView' class='p-8 flex-grow hidden'>
+            <div class='max-w-6xl mx-auto'>
+                <div class='flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 bg-card p-6 rounded-xl border border-border-theme shadow-lg'>
+                    <div class='flex-grow relative'>
+                        <span class='absolute left-3 top-3 text-muted'>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </span>
+                        <input type='text' id='historySearch' placeholder='Keresés feladat ID vagy URL alapján...' class='w-full bg-primary border border-border-theme rounded-lg py-2.5 pl-10 pr-4 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition'>
+                    </div>
+                    <div class='flex items-center gap-3'>
+                        <label for='historyStatusFilter' class='text-sm text-muted whitespace-nowrap'>Szűrés státusz szerint:</label>
+                        <select id='historyStatusFilter' class='bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none min-w-[140px]'>
+                            <option value='all'>Összes</option>
+                            <option value='success'>Sikeres</option>
+                            <option value='error'>Hibás</option>
+                            <option value='pending_approval'>Függőben</option>
+                            <option value='calibrating'>Előnézet</option>
+                            <option value='discarded'>Elutasított</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class='bg-card rounded-xl border border-border-theme shadow-lg overflow-hidden'>
+                    <div class='overflow-x-auto'>
+                        <table class='w-full text-left'>
+                            <thead class='bg-primary text-muted text-xs uppercase tracking-wider sticky top-0'>
+                                <tr>
+                                    <th class='px-6 py-4 font-medium'>Dátum</th>
+                                    <th class='px-6 py-4 font-medium'>URL(ek)</th>
+                                    <th class='px-6 py-4 font-medium'>Bolt</th>
+                                    <th class='px-6 py-4 font-medium text-center'>Ár</th>
+                                    <th class='px-6 py-4 font-medium'>Státusz</th>
+                                    <th class='px-6 py-4 font-medium text-right'>Műveletek</th>
+                                </tr>
+                            </thead>
+                            <tbody id='historyTableBody' class='divide-y divide-border-theme text-sm'>
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id='historyEmptyState' class='hidden p-12 text-center text-muted'>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p class='text-lg font-medium text-main'>Nem található egyező feladat.</p>
+                        <p class='text-sm mt-1'>Próbáljon más keresési feltételeket.</p>
+                    </div>
+                </div>
+            </div>
+            <<div id='urlModal' class='fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hidden transition-opacity'>
+    <div class='bg-card rounded-xl max-w-2xl w-full p-6 shadow-2xl border border-border-theme transform transition-transform'>
+        <div class='flex justify-between items-center border-b border-border-theme pb-4 mb-4'>
+            <h3 class='text-lg font-bold text-main'>Begyűjtött URL-ek</h3>
+            <button id='closeUrlModalBtn' class='text-muted hover:text-main transition'>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div id='urlModalList' class='max-h-72 overflow-y-auto space-y-2 pr-2 custom-scrollbar'>
+            </div>
+        <div class='mt-6 pt-4 border-t border-border-theme flex justify-end'>
+            <button id='closeUrlModalBtnBottom' class='px-6 py-2 bg-primary border border-border-theme text-main rounded-lg font-medium hover:bg-accent hover:text-white transition'>
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+    </div>
+</div>
+    </div>
+</div>
+        </div>
+
+        <!-- Settings View -->
+        <div id='settingsView' class='p-8 flex-grow hidden'>
+            <div class='max-w-4xl mx-auto space-y-6'>
+                <div class='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                    <!-- Card 1: Profile -->
+                    <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg space-y-4'>
+                        <h3 class='text-lg font-semibold flex items-center text-main'>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            Profil beállítások
+                        </h3>
+                        <div>
+                            <label for='settingsFullName' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Teljes név</label>
+                            <input type='text' id='settingsFullName' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='John Doe'>
+                        </div>
+                        <div>
+                            <label for='settingsEmail' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>E-mail cím</label>
+                            <input type='email' id='settingsEmail' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='john@example.com'>
+                        </div>
+                        <button class='w-full bg-primary border border-border-theme hover:bg-card text-main text-sm font-medium py-2 rounded-lg transition'>
+                            Jelszó módosítása
+                        </button>
+                    </div>
+
+                    <!-- Card 2: Bolt kapcsolatok -->
+                    <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg space-y-4'>
+                        <h3 class='text-lg font-semibold flex items-center text-main'>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Bolt kapcsolatok
+                        </h3>
+                        <div>
+                            <label for='settingsPlatform' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>E-kereskedelmi platform</label>
+                            <select id='settingsPlatform' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition'>
+                                <option value='Shopify'>Shopify</option>
+                                <option value='Unas'>Unas</option>
+                                <option value='Shoprenter'>Shoprenter</option>
+                                <option value='WooCommerce'>WooCommerce</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for='settingsStoreUrl' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Bolt URL</label>
+                            <input type='text' id='settingsStoreUrl' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='https://my-store.com'>
+                        </div>
+                        <div>
+                            <label for='settingsApiKey' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>API kulcs / Hozzáférési token</label>
+                            <input type='password' id='settingsApiKey' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition' placeholder='â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘â€˘'>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Preferences -->
+                    <div class='bg-card p-6 rounded-xl border border-border-theme shadow-lg space-y-4'>
+                        <h3 class='text-lg font-semibold flex items-center text-main'>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m12 0a2 2 0 100-4m0 4a2 2 0 110-4m-6 0a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m12 0a2 2 0 100-4m0 4a2 2 0 110-4" />
+                            </svg>
+                            Preferences
+                        </h3>
+                        <div>
+                            <label for='settingsLanguage' class='block text-xs font-semibold text-muted uppercase tracking-wider mb-2'>Nyelv</label>
+                            <select id='settingsLanguage' class='w-full bg-primary border border-border-theme rounded-lg p-2.5 text-sm text-main focus:ring-2 focus:ring-accent outline-none transition'>
+                                <option value='Hungarian'>Hungarian</option>
+                                <option value='English'>English</option>
+                                <option value='German'>German</option>
+                                <option value='French'>French</option>
+                                <option value='Spanish'>Spanish</option>
+                                <option value='Italian'>Italian</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class='block text-xs font-semibold text-muted uppercase tracking-wider mb-3'>Megjelenés (Téma)</label>
+                            <div class='grid grid-cols-3 gap-3' id='themeGrid'>
+                                <!-- Card 1: Webspiring Light -->
+                                <div class='theme-card bg-white border-border-theme active' data-theme='theme-webspiring-light'>
+                                    <div class='checkmark'>
+                                        <svg class='w-5 h-5 text-accent' fill='currentColor' viewBox='0 0 20 20'>
+                                            <path fill-rule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z' clip-rule='evenodd'></path>
+                                        </svg>
+                                    </div>
+                                    <div class='h-12 w-full bg-gray-50 rounded mb-2 border border-gray-100 flex items-center px-2'>
+                                        <div class='w-full h-2 bg-accent rounded-full opacity-20'></div>
+                                    </div>
+                                    <p class='text-[10px] font-bold text-gray-800 text-center'>Webspiring Light</p>
+                                </div>
+                                <!-- Card 2: Classic Dark -->
+                                <div class='theme-card bg-gray-900 border-gray-700' data-theme='theme-dark'>
+                                    <div class='checkmark'>
+                                        <svg class='w-5 h-5 text-blue-500' fill='currentColor' viewBox='0 0 20 20'>
+                                            <path fill-rule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z' clip-rule='evenodd'></path>
+                                        </svg>
+                                    </div>
+                                    <div class='h-12 w-full bg-gray-800 rounded mb-2 border border-gray-700 flex items-center px-2'>
+                                        <div class='w-full h-2 bg-blue-500 rounded-full opacity-20'></div>
+                                    </div>
+                                    <p class='text-[10px] font-bold text-gray-300 text-center'>Classic Dark</p>
+                                </div>
+                                <!-- Card 3: Midnight Black -->
+                                <div class='theme-card bg-black border-gray-800' data-theme='theme-midnight-black'>
+                                    <div class='checkmark'>
+                                        <svg class='w-5 h-5 text-blue-500' fill='currentColor' viewBox='0 0 20 20'>
+                                            <path fill-rule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z' clip-rule='evenodd'></path>
+                                        </svg>
+                                    </div>
+                                    <div class='h-12 w-full bg-gray-900 rounded mb-2 border border-gray-800 flex items-center px-2'>
+                                        <div class='w-full h-2 bg-gray-500 rounded-full opacity-20'></div>
+                                    </div>
+                                    <p class='text-[10px] font-bold text-gray-400 text-center'>Midnight Black</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class='flex items-center justify-between py-2'>
+                            <span class='text-sm text-muted'>E-mail értesítések</span>
+                            <label class='relative inline-flex items-center cursor-pointer'>
+                                <input type='checkbox' id='settingsNotifications' class='sr-only peer'>
+                                <div class="w-11 h-6 bg-primary border border-border-theme peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: Veszélyes zóna -->
+                    <div class='bg-card p-6 rounded-xl border-2 border-red-900/50 shadow-lg space-y-4'>
+                        <h3 class='text-lg font-semibold flex items-center text-red-600'>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            Veszélyes zóna
+                        </h3>
+                        <p class='text-xs text-muted'>Az itt végzett műveletek visszafordíthatatlanok és adatvesztéssel járhatnak.</p>
+                        <div class='flex flex-col gap-3 pt-2'>
+                            <button class='w-full bg-primary border border-border-theme hover:bg-card text-main text-sm font-medium py-2.5 rounded-lg transition'>
+                                Adataim exportálása
+                            </button>
+                            <button id='btnDeleteAccount' class='w-full bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-600/50 text-sm font-medium py-2.5 rounded-lg transition'>
+                                Fiók törlése
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class='pt-6'>
+                    <button id='btnSaveSettings' class='w-full bg-accent hover:opacity-90 text-white font-bold py-4 rounded-xl transition transform hover:scale-[1.005] active:scale-95 shadow-xl shadow-accent/20'>
+                        Összes beállítás mentése
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-3"></div>
+
+
+<input type="file" id="imageUploader" accept="image/*" multiple class="hidden" onchange="handleImageUpload(event)" />
+
+    <script src='app.js'></script>
+
+</body>
+</html>
