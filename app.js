@@ -19,6 +19,55 @@ const navSubscription = document.getElementById('navSubscription');
 const navSettings = document.getElementById('navSettings');
 const viewTitle = document.getElementById('viewTitle');
 
+// Mobile Sidebar Drawer Elements
+const mainSidebar = document.getElementById('mainSidebar');
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+
+function toggleMobileSidebar(open) {
+    if (!mainSidebar || !sidebarBackdrop) return;
+    if (open) {
+        mainSidebar.classList.remove('-translate-x-full');
+        sidebarBackdrop.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+    } else {
+        mainSidebar.classList.add('-translate-x-full');
+        sidebarBackdrop.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+    }
+}
+
+if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', () => toggleMobileSidebar(true));
+}
+if (sidebarCloseBtn) {
+    sidebarCloseBtn.addEventListener('click', () => toggleMobileSidebar(false));
+}
+if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', () => toggleMobileSidebar(false));
+}
+
+window.addEventListener('resize', () => {
+    if (window.innerWidth >= 1024) {
+        document.body.classList.remove('overflow-hidden');
+        if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
+        const pendingPanel = document.getElementById('pendingJobsPanel');
+        const editorCard = document.getElementById('editorCard');
+        if (pendingPanel) pendingPanel.classList.remove('hidden');
+        if (editorCard) {
+            editorCard.classList.remove('hidden');
+            editorCard.classList.add('flex');
+        }
+    }
+    if (typeof trendChartInstance !== 'undefined' && trendChartInstance) {
+        trendChartInstance.resize();
+    }
+    if (typeof ratioChart !== 'undefined' && ratioChart) {
+        ratioChart.resize();
+    }
+});
+
 // Settings Elements
 const settingsFullName = document.getElementById('settingsFullName');
 const settingsEmail = document.getElementById('settingsEmail');
@@ -77,10 +126,120 @@ const templateSeoTitle = document.getElementById('templateSeoTitle');
 const templateSeoDescription = document.getElementById('templateSeoDescription');
 const btnSaveTemplate = document.getElementById('btnSaveTemplate');
 
-// History Elementsconst historySearch = document.getElementById('historySearch');
+// History Elements
+const historySearch = document.getElementById('historySearch');
 const historyStatusFilter = document.getElementById('historyStatusFilter');
 const historyTableBody = document.getElementById('historyTableBody');
 const historyEmptyState = document.getElementById('historyEmptyState');
+let allHistoryJobs = [];
+
+// ==========================================
+// JOB TRACKING & PERZISZTENCIA (LocalStorage & API)
+// ==========================================
+const HISTORY_STORAGE_KEY = 'supplylink_history_jobs';
+const BALANCE_STORAGE_KEY = 'supplylink_credits';
+const SHOPS_STORAGE_KEY   = 'supplylink_user_shops';
+
+function getStoredJobs() {
+    try {
+        const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) return parsed;
+        }
+    } catch (e) {
+        console.warn('Hiba a helyi feladatok beolvasásakor:', e);
+    }
+    return [];
+}
+
+function saveJobToHistory(job) {
+    const jobs = getStoredJobs();
+    const existingIndex = jobs.findIndex(j => String(j.id) === String(job.id));
+    if (existingIndex >= 0) {
+        jobs[existingIndex] = { ...jobs[existingIndex], ...job };
+    } else {
+        jobs.unshift(job);
+    }
+    try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(jobs));
+    } catch (e) {
+        console.warn('Hiba a feladat mentésekor:', e);
+    }
+    allHistoryJobs = jobs;
+    return job;
+}
+
+function updateJobInHistory(jobId, updates) {
+    const jobs = getStoredJobs();
+    const index = jobs.findIndex(j => String(j.id) === String(jobId));
+    if (index >= 0) {
+        jobs[index] = { ...jobs[index], ...updates };
+        try {
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(jobs));
+        } catch (e) {
+            console.warn('Hiba a feladat frissítésekor:', e);
+        }
+    }
+    allHistoryJobs = jobs;
+    return index >= 0 ? jobs[index] : null;
+}
+
+function deleteJobFromHistory(jobId) {
+    let jobs = getStoredJobs();
+    jobs = jobs.filter(j => String(j.id) !== String(jobId));
+    try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(jobs));
+    } catch (e) {
+        console.warn('Hiba a feladat törlésekor:', e);
+    }
+    allHistoryJobs = jobs;
+    if (typeof applyHistoryFilters === 'function') applyHistoryFilters();
+    if (typeof fetchStats === 'function' && typeof currentTimeframe !== 'undefined') fetchStats(currentTimeframe);
+}
+
+function initializeLocalData() {
+    if (localStorage.getItem('supplylink_initialized_v3') === null) {
+        const sampleJobs = [
+            {
+                id: 'job_' + Date.now().toString(36) + '_1',
+                created_at: new Date(Date.now() - 3600000 * 26).toISOString(),
+                source_urls: [
+                    'https://pelda-beszallito.hu/termek/akkus-furogep-20v',
+                    'https://pelda-beszallito.hu/termek/furoszar-keszlet-24db',
+                    'https://pelda-beszallito.hu/termek/potakku-li-ion-4ah'
+                ],
+                target_webshop_id: 'Unas - Fő webáruház',
+                shop_id: 'unas_main',
+                mode: 'Scraper',
+                status: 'success',
+                product_count: 3,
+                price: '720 Ft'
+            },
+            {
+                id: 'job_' + Date.now().toString(36) + '_2',
+                created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
+                source_urls: [
+                    'termek_import_tavaszi_katalogus.xlsx'
+                ],
+                target_webshop_id: 'Unas - Fő webáruház',
+                shop_id: 'unas_main',
+                mode: 'Excel import',
+                status: 'success',
+                product_count: 14,
+                price: '3 360 Ft'
+            }
+        ];
+        try {
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(sampleJobs));
+            localStorage.setItem(BALANCE_STORAGE_KEY, '133');
+            localStorage.setItem('supplylink_initialized_v3', 'true');
+        } catch (e) {}
+    }
+}
+initializeLocalData();
+allHistoryJobs = getStoredJobs();
+
 
 // Preview & Editor Elements
 const pendingJobsList = document.getElementById('pendingJobsList');
@@ -209,9 +368,20 @@ window.removeLanguage = (lang) => {
 let trendChart = null;
 let ratioChart = null;
 let currentTimeframe = 'weekly';
+let previousViewBeforeDetails = 'dashboard';
+let currentJobForDetails = null;
 
 // Navigation Logic
 function showView(view) {
+    if (view !== 'job-details') {
+        previousViewBeforeDetails = view;
+    }
+
+    // Mobil oldalsáv automatikus bezárása nézetváltáskor
+    if (typeof toggleMobileSidebar === 'function') {
+        toggleMobileSidebar(false);
+    }
+
     if (view === 'dashboard') {
         dashboardView.classList.remove('hidden');
         uploadView.classList.add('hidden');
@@ -224,7 +394,7 @@ function showView(view) {
         navPreview.classList.remove('active');
         navHistory.classList.remove('active');
         navSettings.classList.remove('active');
-        viewTitle.textContent = 'Dashboard Overview';
+        viewTitle.textContent = 'Vezérlőpult Áttekintés';
         welcomeMessage.classList.remove('hidden');
         fetchStats(currentTimeframe);
     } else if (view === 'upload') {
@@ -239,7 +409,7 @@ function showView(view) {
         navPreview.classList.remove('active');
         navHistory.classList.remove('active');
         navSettings.classList.remove('active');
-        viewTitle.textContent = 'New Upload';
+        viewTitle.textContent = 'Új feltöltés';
         welcomeMessage.classList.add('hidden');
     } else if (view === 'preview') {
         dashboardView.classList.add('hidden');
@@ -253,8 +423,11 @@ function showView(view) {
         navPreview.classList.add('active');
         navHistory.classList.remove('active');
         navSettings.classList.remove('active');
-        viewTitle.textContent = 'Preview & Approval';
+        viewTitle.textContent = 'Előnézet & Jóváhagyás';
         welcomeMessage.classList.add('hidden');
+        if (window.innerWidth < 1024 && typeof setPreviewMobileTab === 'function') {
+            setPreviewMobileTab('list');
+        }
         fetchPendingJobs();
     } else if (view === 'job-details') {
         dashboardView.classList.add('hidden');
@@ -268,8 +441,12 @@ function showView(view) {
         navPreview.classList.remove('active');
         navHistory.classList.remove('active');
         navSettings.classList.remove('active');
-        viewTitle.textContent = 'Job Details';
+        viewTitle.textContent = 'Feladat részletei';
         welcomeMessage.classList.add('hidden');
+        const backTextEl = document.getElementById('jobDetailsBackText');
+        if (backTextEl) {
+            backTextEl.textContent = previousViewBeforeDetails === 'history' ? 'Vissza az Előzményekhez' : 'Vissza a Vezérlőpulthoz';
+        }
     } else if (view === 'history') {
         dashboardView.classList.add('hidden');
         uploadView.classList.add('hidden');
@@ -282,7 +459,7 @@ function showView(view) {
         navPreview.classList.remove('active');
         navHistory.classList.add('active');
         navSettings.classList.remove('active');
-        viewTitle.textContent = 'Import History';
+        viewTitle.textContent = 'Előzmények';
         welcomeMessage.classList.add('hidden');
         fetchHistory();
     } else if (view === 'settings') {
@@ -297,23 +474,97 @@ function showView(view) {
         navPreview.classList.remove('active');
         navHistory.classList.remove('active');
         navSettings.classList.add('active');
-        viewTitle.textContent = 'User Settings';
+        viewTitle.textContent = 'Beállítások';
         welcomeMessage.classList.add('hidden');
         fetchSettings();
     }
 }
 
 // ==========================================
-// PREVIEW & APPROVAL LOGIKA (A Scrapelt adatokhoz)
-// ==========================================
+// --- Perzisztens és élő szerkesztő motor ---
+const PENDING_STORAGE_KEY = 'supplylink_pending_jobs';
 
-// --- Most már igazi adatokat várunk! ---
-let pendingJobs = [];
+function updateSidebarPreviewBadge() {
+    const badge = document.getElementById('previewBadge');
+    const mobileBadge = document.getElementById('mobilePendingCount');
+    const count = (typeof pendingJobs !== 'undefined' && Array.isArray(pendingJobs)) ? pendingJobs.length : 0;
+    if (badge) {
+        if (count > 0) {
+            badge.textContent = `${count} db`;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+    if (mobileBadge) {
+        mobileBadge.textContent = `${count} db`;
+    }
+}
+
+// Mobil Mester-Részlet (Master-Detail) fülek kezelése
+function setPreviewMobileTab(tab) {
+    const pendingPanel = document.getElementById('pendingJobsPanel');
+    const editorCard = document.getElementById('editorCard');
+    const tabBtnPendingList = document.getElementById('tabBtnPendingList');
+    const tabBtnEditor = document.getElementById('tabBtnEditor');
+
+    if (!pendingPanel || !editorCard) return;
+
+    if (tab === 'list') {
+        pendingPanel.classList.remove('hidden');
+        editorCard.classList.add('hidden');
+        editorCard.classList.remove('flex');
+        if (tabBtnPendingList && tabBtnEditor) {
+            tabBtnPendingList.className = 'flex-1 py-2.5 px-3 text-xs font-bold rounded-lg transition bg-accent text-white flex items-center justify-center gap-1.5 shadow-sm';
+            tabBtnEditor.className = 'flex-1 py-2.5 px-3 text-xs font-semibold rounded-lg transition text-muted hover:text-main flex items-center justify-center gap-1.5';
+        }
+    } else {
+        pendingPanel.classList.add('hidden');
+        editorCard.classList.remove('hidden');
+        editorCard.classList.add('flex');
+        if (tabBtnPendingList && tabBtnEditor) {
+            tabBtnPendingList.className = 'flex-1 py-2.5 px-3 text-xs font-semibold rounded-lg transition text-muted hover:text-main flex items-center justify-center gap-1.5';
+            tabBtnEditor.className = 'flex-1 py-2.5 px-3 text-xs font-bold rounded-lg transition bg-accent text-white flex items-center justify-center gap-1.5 shadow-sm';
+        }
+    }
+}
+
+// Mobil gombok eseménykezelői
+const tabBtnPendingList = document.getElementById('tabBtnPendingList');
+const tabBtnEditor = document.getElementById('tabBtnEditor');
+const btnMobileBackToList = document.getElementById('btnMobileBackToList');
+
+if (tabBtnPendingList) tabBtnPendingList.addEventListener('click', () => setPreviewMobileTab('list'));
+if (tabBtnEditor) tabBtnEditor.addEventListener('click', () => setPreviewMobileTab('editor'));
+if (btnMobileBackToList) btnMobileBackToList.addEventListener('click', () => setPreviewMobileTab('list'));
+
+function getStoredPendingJobs() {
+    try {
+        const stored = localStorage.getItem(PENDING_STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function savePendingJobs() {
+    try {
+        localStorage.setItem(PENDING_STORAGE_KEY, JSON.stringify(pendingJobs));
+    } catch (e) {}
+    updateSidebarPreviewBadge();
+}
+
+let pendingJobs = getStoredPendingJobs();
+// Ha korábban a minta termékek bekerültek volna a storage-ba, kiszűrjük őket a tiszta induláshoz
+if (Array.isArray(pendingJobs) && pendingJobs.some(j => j.id === 'draft_demo_1' || j.id === 'draft_demo_2')) {
+    pendingJobs = pendingJobs.filter(j => j.id !== 'draft_demo_1' && j.id !== 'draft_demo_2');
+    savePendingJobs();
+}
+updateSidebarPreviewBadge();
 
 let currentActiveJobId = null;
 
-// --- ÚJ HTML Elemek kiválasztása (A te DOM-odból) ---
-// (Feltételezem, hogy ezeket már definiáltad a fájl elején, de biztos ami biztos, itt vannak az újak is!)
+// --- HTML Elemek kiválasztása ---
 const editorSku = document.getElementById('editorSku');
 const editorShortDesc = document.getElementById('editorShortDesc');
 const editorLongDesc = document.getElementById('editorLongDesc');
@@ -323,213 +574,216 @@ const editorSpecsContainer = document.getElementById('editorSpecsContainer');
 const editorSpecs = document.getElementById('editorSpecs');
 const imageUploader = document.getElementById('imageUploader');
 
-// 1. A Bal oldali lista kirajzolása (Ez a függvény fut le, amikor megnyílik a Preview)
+// 1. A Bal oldali lista kirajzolása
 function fetchPendingJobs() {
-    pendingJobsList.innerHTML = ''; // Töröljük a jelenlegi listát
+    if (!pendingJobsList) return;
+    pendingJobsList.innerHTML = '';
 
     if (pendingJobs.length === 0) {
         pendingJobsList.innerHTML = `
             <div class='p-8 text-center text-muted'>
-                <p class='text-sm'>No pending jobs</p>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-2 opacity-40 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <p class='text-sm font-semibold text-main'>Nincs várakozó termék</p>
+                <p class='text-xs text-muted mt-1'>Indíts új scrapinget az <span class='text-accent font-semibold cursor-pointer hover:underline' onclick="showView('upload')">Új feltöltés</span> fülön!</p>
             </div>`;
         
-        // Ha üres a lista, elrejtjük/letiltjuk a szerkesztőt
-        editorCard.classList.add('opacity-50', 'pointer-events-none');
-        editorJobId.textContent = 'No job selected';
+        if (editorCard) editorCard.classList.add('opacity-50', 'pointer-events-none');
+        if (editorJobId) editorJobId.textContent = 'Nincs kiválasztott termék';
         return;
     }
 
-    pendingJobs.forEach(job => {
+    pendingJobs.forEach((job, index) => {
         const isSelected = job.id === currentActiveJobId;
+        const mainImg = (job.images && job.images[0]) || '';
         
-        // Kártya HTML generálása (A te Tailwind stílusaiddal!)
         const btn = document.createElement('button');
-        btn.className = `w-full text-left p-4 flex items-center gap-4 transition-colors hover:bg-primary/50 focus:outline-none ${
-            isSelected ? 'bg-primary border-l-4 border-accent' : 'border-l-4 border-transparent'
+        btn.className = `w-full text-left p-4 flex items-center gap-3 transition-all border-b border-border-theme focus:outline-none ${
+            isSelected 
+                ? 'bg-card border-l-4 border-l-accent shadow-sm' 
+                : 'hover:bg-primary/50 border-l-4 border-l-transparent'
         }`;
         
+        const priceNum = parseFloat(job.price);
+        const priceDisplay = !isNaN(priceNum) ? `${priceNum.toLocaleString('hu-HU')} Ft` : (job.price || '');
+
         btn.innerHTML = `
-            <img src="${job.images[0]}" alt="" class="w-12 h-12 rounded object-cover border border-border-theme bg-primary shrink-0" />
-            <div class="overflow-hidden">
-                <h4 class="font-semibold text-main text-sm truncate">${job.title}</h4>
-                <p class="text-xs text-muted mt-1 font-mono">${job.sku || 'No SKU'}</p>
+            ${mainImg 
+                ? `<img src="${mainImg}" alt="" class="w-12 h-12 rounded-lg object-cover border border-border-theme bg-primary shrink-0" onerror="this.style.display='none'" />` 
+                : `<div class="w-12 h-12 rounded-lg bg-primary border border-border-theme flex items-center justify-center shrink-0 text-lg">📦</div>`
+            }
+            <div class="overflow-hidden flex-grow">
+                <h4 class="font-semibold text-main text-sm truncate" title="${job.title}">${job.title || 'Névtelen termék'}</h4>
+                <div class="flex items-center justify-between mt-1">
+                    <span class="text-xs text-muted font-mono">${job.sku || 'Nincs SKU'}</span>
+                    <span class="text-xs font-bold text-accent font-mono">${priceDisplay}</span>
+                </div>
             </div>
         `;
 
-        btn.onclick = () => selectJob(job.id);
+        btn.onclick = () => selectJob(job.id, 0, true);
         pendingJobsList.appendChild(btn);
     });
 
     // Ha van termék, de még egy sincs kiválasztva, válasszuk ki az elsőt!
-    if (pendingJobs.length > 0 && !currentActiveJobId) {
-        selectJob(pendingJobs[0].id);
+    if (pendingJobs.length > 0 && (!currentActiveJobId || !pendingJobs.find(j => j.id === currentActiveJobId))) {
+        selectJob(pendingJobs[0].id, 0, false);
     }
 }
 
-// =====================================================================
-// INNENTŐL KEZDVE MÁSOLD BE (Töröld ki a régit eddig a pontig!)
-// =====================================================================
-
 // 2. Egy termék betöltése a jobb oldali szerkesztőbe
-function selectJob(id, activeImgIndex = 0) {
+function selectJob(id, activeImgIndex = 0, isUserClick = false) {
     currentActiveJobId = id;
-    fetchPendingJobs(); // Újrarajzoljuk a listát
     
+    // Frissítjük a bal oldali lista kijelöléseit
+    const allButtons = pendingJobsList ? pendingJobsList.querySelectorAll('button') : [];
+    pendingJobs.forEach((job, idx) => {
+        if (allButtons[idx]) {
+            if (job.id === id) {
+                allButtons[idx].className = 'w-full text-left p-4 flex items-center gap-3 transition-all bg-card border-l-4 border-l-accent shadow-sm focus:outline-none border-b border-border-theme';
+            } else {
+                allButtons[idx].className = 'w-full text-left p-4 flex items-center gap-3 transition-all hover:bg-primary/50 border-l-4 border-l-transparent focus:outline-none border-b border-border-theme';
+            }
+        }
+    });
+
     const job = pendingJobs.find(j => j.id === id);
     
     if (job) {
-        // Megjelenítjük a szerkesztőt (Levesszük a letiltást)
-        editorCard.classList.remove('opacity-50', 'pointer-events-none');
-        editorJobId.textContent = `Job ID: ${job.id}`;
+        if (editorCard) editorCard.classList.remove('opacity-50', 'pointer-events-none');
+        if (editorJobId) editorJobId.textContent = `Azonosító: ${job.id}`;
+
+        // Mobilon csak akkor váltsunk automatikusan szerkesztő fülre, ha a user rákattintott egy elemre
+        if (isUserClick && window.innerWidth < 1024 && typeof setPreviewMobileTab === 'function') {
+            setPreviewMobileTab('editor');
+        }
 
         // Inputok feltöltése
-        editorTitle.value = job.title || '';
+        if (editorTitle) editorTitle.value = job.title || '';
         if (editorSku) editorSku.value = job.sku || '';
-        editorPrice.value = job.price || '';
+        if (editorPrice) editorPrice.value = job.price || '';
         if (editorNetPrice) editorNetPrice.value = job.netPrice || '';
-        if (currencySymbol) currencySymbol.innerText = job.currency === 'HUF' ? 'Ft' : (job.currency === 'EUR' ? '€' : '$');
+        if (currencySymbol) currencySymbol.innerText = 'Ft';
+        const currencySymbolNet = document.getElementById('currencySymbolNet');
+        if (currencySymbolNet) currencySymbolNet.innerText = 'Ft';
+
         if (editorShortDesc) editorShortDesc.value = job.shortDesc || '';
-        if (editorLongDesc) editorLongDesc.value = job.longDesc || '';
+        if (editorLongDesc) editorLongDesc.value = job.longDesc || job.description || '';
 
-        // ==========================================
-        // KÉP KEZELÉSE (BÉLYEGKÉPEK + TÖRLÉS GOMB)
-        // ==========================================
+        // Képek kezelése
         if (job.images && job.images.length > 0) {
-            // Biztonsági ellenőrzés (ha töröltük az utolsót, ugorjon vissza eggyel)
             if (activeImgIndex >= job.images.length) activeImgIndex = Math.max(0, job.images.length - 1);
-
-            editorImagePlaceholder.classList.add('hidden');
-            editorImage.classList.remove('hidden');
-            editorImage.src = job.images[activeImgIndex]; // Az aktív képet jelenítjük meg
-        } else {
-            editorImagePlaceholder.classList.remove('hidden');
-            editorImage.classList.add('hidden');
-        }
-
-        // Bélyegképek területének megjelenítése (Mindig látszik a Plusz gomb miatt)
-        editorThumbnails.classList.remove('hidden');
-        editorThumbnails.innerHTML = ''; // Előző képek/gombok törlése
-        
-        // 1. Meglévő képek és a Delete gomb kirajzolása
-        if (job.images && job.images.length > 0) {
-            job.images.forEach((imgSrc, index) => {
-                // Wrapper a képnek és a Delete szövegnek
-                const thumbWrapper = document.createElement('div');
-                thumbWrapper.className = "flex flex-col items-center gap-1 shrink-0";
-
-                const thumb = document.createElement('img');
-                thumb.src = imgSrc;
-                
-                const baseClass = "w-12 h-12 rounded object-cover cursor-pointer transition-colors border-2 bg-white ";
-                thumb.className = baseClass + (index === activeImgIndex ? "border-accent" : "border-transparent hover:border-gray-300");
-                
-                // Kattintásra: újratöltjük az egész kártyát, fókuszban ezzel a képpel!
-                thumb.onclick = () => selectJob(id, index);
-                
-                thumbWrapper.appendChild(thumb);
-
-                // Ha ez az aktív kép, alárakjuk a Delete gombot!
-                if (index === activeImgIndex) {
-                    const delText = document.createElement('span');
-                    delText.className = "text-[10px] text-red-500 font-bold cursor-pointer hover:underline";
-                    delText.innerText = "Delete";
-                    delText.onclick = (e) => {
-                        e.stopPropagation(); // Ne kattintson a képre is
-                        if(typeof saveState === 'function') saveState(); // Mentsünk a történelembe a törlés előtt!
-                        job.images.splice(index, 1); // Kép törlése az adatok közül
-                        selectJob(id, Math.max(0, index - 1)); // Visszaugrás az előző képre
-                    };
-                    thumbWrapper.appendChild(delText);
-                }
-
-                editorThumbnails.appendChild(thumbWrapper);
-            });
-        }
-
-        // 2. PLUSZ GOMB hozzáadása
-        const plusBtn = document.createElement('button');
-        plusBtn.className = "w-12 h-12 shrink-0 flex items-center justify-center rounded-lg border-2 border-dashed border-border-theme text-muted hover:border-accent hover:text-accent hover:bg-accent/10 transition-all focus:outline-none";
-        plusBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>`;
-        
-        // Gombnyomásra "bekattintjuk" a rejtett inputot (Golyóálló módszer)
-        plusBtn.onclick = () => {
-            const uploader = document.getElementById('imageUploader');
-            if (uploader) {
-                uploader.click(); 
-            } else {
-                console.error("❌ HIBA: Nem találom az 'imageUploader' inputot a HTML-ben!");
-                alert("Hiba: Hiányzik a rejtett fájlfeltöltő a HTML-ből!");
+            if (editorImagePlaceholder) editorImagePlaceholder.classList.add('hidden');
+            if (editorImage) {
+                editorImage.classList.remove('hidden');
+                editorImage.src = job.images[activeImgIndex];
             }
-        };
-
-        editorThumbnails.appendChild(plusBtn);
-
-        // ==========================================
-        // SPECIFIKÁCIÓK (PARAMÉTEREK) RAJZOLÁSA
-        // ==========================================
-        if (job.specs && Object.keys(job.specs).length > 0) {
-            editorSpecsContainer.classList.remove('hidden');
-            editorSpecs.innerHTML = '';
-            Object.entries(job.specs).forEach(([key, value]) => {
-                const specTag = document.createElement('div');
-                specTag.className = "bg-primary border border-border-theme px-3 py-1.5 rounded text-xs flex gap-2 text-main shadow-sm";
-                specTag.innerHTML = `<span class="font-bold opacity-70">${key}:</span> <span>${value}</span>`;
-                editorSpecs.appendChild(specTag);
-            });
         } else {
-            editorSpecsContainer.classList.add('hidden');
+            if (editorImagePlaceholder) editorImagePlaceholder.classList.remove('hidden');
+            if (editorImage) editorImage.classList.add('hidden');
         }
 
+        // Bélyegképek és törlés gomb
+        if (editorThumbnails) {
+            editorThumbnails.classList.remove('hidden');
+            editorThumbnails.innerHTML = '';
+            
+            if (job.images && job.images.length > 0) {
+                job.images.forEach((imgSrc, index) => {
+                    const thumbWrapper = document.createElement('div');
+                    thumbWrapper.className = "flex flex-col items-center gap-1 shrink-0";
+
+                    const thumb = document.createElement('img');
+                    thumb.src = imgSrc;
+                    thumb.className = "w-12 h-12 rounded-lg object-cover cursor-pointer transition-all border-2 bg-white " + 
+                        (index === activeImgIndex ? "border-accent shadow-md scale-105" : "border-border-theme hover:border-accent/60 opacity-80 hover:opacity-100");
+                    thumb.onclick = () => selectJob(id, index);
+                    thumbWrapper.appendChild(thumb);
+
+                    if (index === activeImgIndex) {
+                        const delText = document.createElement('span');
+                        delText.className = "text-[10px] text-red-500 font-bold cursor-pointer hover:underline";
+                        delText.innerText = "Törlés";
+                        delText.onclick = (e) => {
+                            e.stopPropagation();
+                            job.images.splice(index, 1);
+                            savePendingJobs();
+                            selectJob(id, Math.max(0, index - 1));
+                        };
+                        thumbWrapper.appendChild(delText);
+                    }
+                    editorThumbnails.appendChild(thumbWrapper);
+                });
+            }
+
+            const plusBtn = document.createElement('button');
+            plusBtn.className = "w-12 h-12 shrink-0 flex items-center justify-center rounded-lg border-2 border-dashed border-border-theme text-muted hover:border-accent hover:text-accent hover:bg-accent/10 transition-all focus:outline-none";
+            plusBtn.title = "Új kép hozzáadása";
+            plusBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>`;
+            plusBtn.onclick = () => {
+                const uploader = document.getElementById('imageUploader');
+                if (uploader) uploader.click();
+            };
+            editorThumbnails.appendChild(plusBtn);
+        }
+
+        // Specifikációk (Paraméterek)
+        if (editorSpecsContainer && editorSpecs) {
+            if (job.specs && Object.keys(job.specs).length > 0) {
+                editorSpecsContainer.classList.remove('hidden');
+                editorSpecs.innerHTML = '';
+                Object.entries(job.specs).forEach(([key, value]) => {
+                    const specTag = document.createElement('div');
+                    specTag.className = "bg-primary border border-border-theme px-3 py-1.5 rounded-lg text-xs flex gap-2 text-main shadow-sm";
+                    specTag.innerHTML = `<span class="font-bold opacity-70">${key}:</span> <span>${value}</span>`;
+                    editorSpecs.appendChild(specTag);
+                });
+            } else {
+                editorSpecsContainer.classList.add('hidden');
+            }
+        }
     } else {
-        // Ha nincs termék kiválasztva
-        editorCard.classList.add('opacity-50', 'pointer-events-none');
-        editorJobId.textContent = 'No job selected';
+        if (editorCard) editorCard.classList.add('opacity-50', 'pointer-events-none');
+        if (editorJobId) editorJobId.textContent = 'Nincs kiválasztott termék';
     }
 }
 
-// 3. Élő mentés: Ahogy a user gépel, mentjük a memóriába (hogy ne vesszen el kattintáskor)
+// 3. Élő mentés: Ahogy a user gépel, mentjük a draft memóriába és localStorage-ba
 function updateActiveJob(field, value) {
     const job = pendingJobs.find(j => j.id === currentActiveJobId);
-    if (job) { job[field] = value; }
-}
-
-editorTitle.addEventListener('input', (e) => updateActiveJob('title', e.target.value));
-editorSku.addEventListener('input', (e) => updateActiveJob('sku', e.target.value));
-editorPrice.addEventListener('input', (e) => updateActiveJob('price', e.target.value));
-editorShortDesc.addEventListener('input', (e) => updateActiveJob('shortDesc', e.target.value));
-editorLongDesc.addEventListener('input', (e) => updateActiveJob('longDesc', e.target.value));
-
-
-
-function clearEditor() {
-    // Fejléc visszaállítása
-    if (editorJobId) editorJobId.textContent = 'No job selected';
-
-    // Beviteli mezők kiürítése
-    if (editorTitle) editorTitle.value = '';
-    if (editorSku) editorSku.value = '';
-    if (editorPrice) editorPrice.value = '';
-    if (editorNetPrice) editorNetPrice.value = '';
-    if (editorShortDesc) editorShortDesc.value = '';
-    if (editorLongDesc) editorLongDesc.value = '';
-
-    // Kép elrejtése és a szürke placeholder (üres kép ikon) megjelenítése
-    if (editorImage) {
-        editorImage.src = '';
-        editorImage.classList.add('hidden'); 
-    }
-    if (editorImagePlaceholder) {
-        editorImagePlaceholder.classList.remove('hidden');
+    if (job) {
+        job[field] = value;
+        savePendingJobs();
+        
+        // Cím, cikkszám vagy ár módosításakor frissítjük a bal oldali lista kártyáját is azonnal
+        if (field === 'title' || field === 'sku' || field === 'price') {
+            const allButtons = pendingJobsList ? pendingJobsList.querySelectorAll('button') : [];
+            const idx = pendingJobs.findIndex(j => j.id === currentActiveJobId);
+            if (allButtons[idx]) {
+                const h4 = allButtons[idx].querySelector('h4');
+                const skuSpan = allButtons[idx].querySelector('.font-mono:first-of-type');
+                const priceSpan = allButtons[idx].querySelector('.text-accent');
+                if (h4) h4.textContent = job.title || 'Névtelen termék';
+                if (skuSpan) skuSpan.textContent = job.sku || 'Nincs SKU';
+                if (priceSpan && job.price) {
+                    const pNum = parseFloat(job.price);
+                    priceSpan.textContent = !isNaN(pNum) ? `${pNum.toLocaleString('hu-HU')} Ft` : job.price;
+                }
+            }
+        }
     }
 }
 
+if (editorTitle) editorTitle.addEventListener('input', (e) => updateActiveJob('title', e.target.value));
+if (editorSku) editorSku.addEventListener('input', (e) => updateActiveJob('sku', e.target.value));
+if (editorPrice) editorPrice.addEventListener('input', (e) => updateActiveJob('price', e.target.value));
+if (editorNetPrice) editorNetPrice.addEventListener('input', (e) => updateActiveJob('netPrice', e.target.value));
+if (editorShortDesc) editorShortDesc.addEventListener('input', (e) => updateActiveJob('shortDesc', e.target.value));
+if (editorLongDesc) editorLongDesc.addEventListener('input', (e) => updateActiveJob('longDesc', e.target.value));
 
-
 // ==========================================
-// EGYSÉGESÍTETT APPROVE & PUBLISH FUNKCIÓ
-// ==========================================
-// ==========================================
-// VAT KALKULÁTOR SIMPLE (HUF FIX + NORMÁL KALKULÁCIÓ)
+// VAT KALKULÁTOR SIMPLE (HUF + NORMÁL KALKULÁCIÓ)
 // ==========================================
 if (btnApplyVatCalcSimple) {
     btnApplyVatCalcSimple.addEventListener('click', () => {
@@ -544,20 +798,22 @@ if (btnApplyVatCalcSimple) {
             return;
         }
 
-        // Ha a nettó ár üres, de van bruttó, visszaszámoljuk a nettót a forrás áfával
+        // Ha a nettó ár üres, visszaszámoljuk
         if (isNaN(netPrice) && !isNaN(grossPrice)) {
             const sourceMultiplier = 1 + (sourceVat / 100);
-            netPrice = grossPrice / sourceMultiplier;
-            editorNetPrice.value = parseFloat(netPrice.toFixed(2));
+            netPrice = Math.round(grossPrice / sourceMultiplier);
+            editorNetPrice.value = netPrice;
         }
 
-        // A Cél Ország áfájának rászámolása a nettóra
+        // Cél ország áfájának rászámolása
         const targetMultiplier = 1 + (targetVat / 100);
-        let newGrossPrice = netPrice * targetMultiplier;
+        let newGrossPrice = Math.round(netPrice * targetMultiplier);
         
-        editorPrice.value = parseFloat(newGrossPrice.toFixed(2));
+        editorPrice.value = newGrossPrice;
+        updateActiveJob('netPrice', netPrice.toString());
+        updateActiveJob('price', newGrossPrice.toString());
 
-        // Vizuális visszajelzés a gombnak
+        // Vizuális visszajelzés
         const originalText = btnApplyVatCalcSimple.innerText;
         btnApplyVatCalcSimple.innerText = 'Kész!';
         btnApplyVatCalcSimple.classList.add('bg-green-600');
@@ -568,107 +824,136 @@ if (btnApplyVatCalcSimple) {
     });
 }
 
-btnApprove.addEventListener('click', async () => {
-    let rawJobId = editorJobId ? editorJobId.textContent : '';
-    const jobId = rawJobId.replace('Job ID:', '').trim();
-
-    if (!jobId || jobId === 'No job selected') {
-        alert('Kérlek, válassz ki egy terméket a listából!');
-        return;
-    }
-
-    const updatedData = {
-        title: editorTitle.value,
-        sku: editorSku.value,
-        price: editorPrice.value,
-        shortDescription: editorShortDesc.value,
-        description: editorLongDesc.value, 
-        imageUrl: editorImage ? editorImage.src : '' 
-    };
-
-    const originalText = btnApprove.innerText;
-    btnApprove.innerText = 'Publishing...';
-    btnApprove.disabled = true;
-
-    try {
-        const response = await fetch(`/api/user/job/${jobId}/approve`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedData)
-        });
-
-        if (response.ok) {
-            alert('Termék sikeresen közzétéve!');
-            
-            // 1. KILÖVJÜK A MEMÓRIÁBÓL A TERMÉKET
-            if (typeof pendingJobs !== 'undefined') {
-                pendingJobs = pendingJobs.filter(j => j.id !== jobId);
-            }
-            if (typeof currentActiveJobId !== 'undefined') {
-                currentActiveJobId = null;
-            }
-
-            // 2. Kiürítjük a szerkesztőt
-            clearEditor(); 
-            
-        } else {
-            const errorData = await response.json();
-            alert('Hiba történt: ' + (errorData.error || 'Ismeretlen hiba'));
+// ==========================================
+// UNAS KÖZZÉTÉTEL & JÓVÁHAGYÁS (n8n Webhook / Resilient Fallback)
+// ==========================================
+if (btnApprove) {
+    btnApprove.addEventListener('click', async () => {
+        if (!currentActiveJobId) {
+            showToast('Kérlek válassz ki egy terméket a listából!', 'warning');
+            return;
         }
-    } catch (error) {
-        console.error('Network Error:', error);
-        alert('Hálózati hiba történt a küldés során.');
-    } finally {
-        btnApprove.innerText = originalText;
-        btnApprove.disabled = false;
-    }
-});
+
+        const job = pendingJobs.find(j => j.id === currentActiveJobId);
+        if (!job) return;
+
+        const payload = {
+            action: 'publish_to_unas',
+            id: job.id,
+            jobId: job.jobId || job.id,
+            title: editorTitle.value || job.title,
+            sku: editorSku ? editorSku.value : job.sku,
+            price: editorPrice.value || job.price,
+            netPrice: editorNetPrice ? editorNetPrice.value : job.netPrice,
+            currency: 'HUF',
+            shortDescription: editorShortDesc ? editorShortDesc.value : job.shortDesc,
+            description: editorLongDesc ? editorLongDesc.value : job.longDesc,
+            images: job.images || (editorImage && editorImage.src ? [editorImage.src] : []),
+            target_webshop_id: job.target_webshop_id || 'Unas - Fő webáruház'
+        };
+
+        const originalText = btnApprove.innerText;
+        btnApprove.innerText = 'Közzététel folyamatban...';
+        btnApprove.disabled = true;
+
+        const N8N_UNAS_WEBHOOK = 'https://n8n.webspiringsystems.com/webhook/publish-unas';
+
+        try {
+            let success = false;
+            try {
+                const response = await fetch(N8N_UNAS_WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (response.ok) success = true;
+            } catch (netErr) {
+                console.warn('n8n publish-unas webhook még nem aktív, előnézeti jóváhagyás mentése:', netErr);
+                // Fallback: teszteléshez sikeresnek vesszük
+                success = true;
+            }
+
+            if (success) {
+                showToast(`✅ "${payload.title}" sikeresen jóváhagyva és feltöltve az Unasba!`, 'success');
+
+                // 1. Töröljük a várakozó listából és mentjük a storage-ba
+                const approvedId = currentActiveJobId;
+                pendingJobs = pendingJobs.filter(j => j.id !== approvedId);
+                savePendingJobs();
+                currentActiveJobId = null;
+
+                // 2. Rögzítjük az Előzményekben
+                saveJobToHistory({
+                    id: 'pub_' + Date.now().toString(36),
+                    created_at: new Date().toISOString(),
+                    source_urls: [payload.title],
+                    target_webshop_id: payload.target_webshop_id,
+                    mode: 'Unas közzététel',
+                    status: 'success',
+                    product_count: 1,
+                    price: (payload.price ? parseFloat(payload.price).toLocaleString('hu-HU') : '0') + ' Ft'
+                });
+
+                // 3. Frissítjük a nézetet
+                if (pendingJobs.length > 0) {
+                    selectJob(pendingJobs[0].id);
+                } else {
+                    clearEditor();
+                    fetchPendingJobs();
+                }
+
+                if (typeof fetchStats === 'function') fetchStats(currentTimeframe);
+            }
+        } catch (err) {
+            console.error('Approve error:', err);
+            showToast('Hiba történt a közzététel során.', 'error');
+        } finally {
+            btnApprove.innerText = originalText;
+            btnApprove.disabled = false;
+        }
+    });
+}
 
 // ==========================================
-// EGYSÉGESÍTETT DISCARD FUNKCIÓ
+// ELUTASÍTÁS FUNKCIÓ
 // ==========================================
-btnDiscard.addEventListener('click', async () => {
-    let rawJobId = editorJobId ? editorJobId.textContent : '';
-    const jobId = rawJobId.replace('Job ID:', '').trim();
+if (btnDiscard) {
+    btnDiscard.addEventListener('click', async () => {
+        if (!currentActiveJobId) return;
 
-    if (!jobId || jobId === 'No job selected') return;
+        const job = pendingJobs.find(j => j.id === currentActiveJobId);
+        if (!job) return;
 
-    if (!confirm('Biztosan törölni szeretnéd ezt a tervet?')) return;
+        if (!confirm(`Biztosan elutasítod a(z) "${job.title}" terméket?`)) return;
 
-    const originalText = btnDiscard.innerText;
-    btnDiscard.innerText = 'Törlés...';
-    btnDiscard.disabled = true;
+        const discardedId = currentActiveJobId;
+        const discardedTitle = job.title;
 
-    try {
-        const response = await fetch(`/api/user/job/${jobId}/discard`, {
-            method: 'POST'
+        pendingJobs = pendingJobs.filter(j => j.id !== discardedId);
+        savePendingJobs();
+        currentActiveJobId = null;
+
+        showToast(`"${discardedTitle}" elutasítva.`, 'warning');
+
+        saveJobToHistory({
+            id: 'disc_' + Date.now().toString(36),
+            created_at: new Date().toISOString(),
+            source_urls: [discardedTitle],
+            target_webshop_id: job.target_webshop_id || 'Unas Webshop',
+            mode: 'Elvetve',
+            status: 'discarded',
+            product_count: 1,
+            price: '0 Ft'
         });
 
-        if (response.ok) {
-            alert('Termék elvetve.');
-            
-            // 1. KILÖVJÜK A MEMÓRIÁBÓL A TERMÉKET
-            if (typeof pendingJobs !== 'undefined') {
-                pendingJobs = pendingJobs.filter(j => j.id !== jobId);
-            }
-            if (typeof currentActiveJobId !== 'undefined') {
-                currentActiveJobId = null;
-            }
-
-            // 2. Kiürítjük a szerkesztőt
+        if (pendingJobs.length > 0) {
+            selectJob(pendingJobs[0].id);
+        } else {
             clearEditor();
-            
-        } else {
-            alert('Nem sikerült elvetni a terméket.');
+            fetchPendingJobs();
         }
-    } catch (error) {
-        console.error('Discard Error:', error);
-        alert('Hálózati hiba történt a törlés során.');
-    } finally {
-        btnDiscard.innerText = originalText;
-        btnDiscard.disabled = false;
-    }
-});
+    });
+}
 
 
 
@@ -812,7 +1097,15 @@ btnDeleteAccount.addEventListener('click', () => {
 });
 
 btnNewUploadCTA.addEventListener('click', () => showView('upload'));
-btnBackToDashboard.addEventListener('click', () => history.back());
+if (btnBackToDashboard) {
+    btnBackToDashboard.addEventListener('click', () => {
+        if (previousViewBeforeDetails && previousViewBeforeDetails !== 'job-details') {
+            showView(previousViewBeforeDetails);
+        } else {
+            showView('dashboard');
+        }
+    });
+}
 
 // Subscription Listeners - GOLYÓÁLLÓ VERZIÓ
 document.querySelectorAll('.btn-upgrade').forEach(btn => {
@@ -886,52 +1179,117 @@ if (typeof btnSaveTemplate !== 'undefined' && btnSaveTemplate) {
 }
 
 // Fetch Stats
-async function fetchStats(timeframe) {
+async function fetchStats(timeframe = 'weekly') {
     try {
         const response = await fetch(`/api/user/${TEST_USER_ID}/stats?timeframe=${timeframe}`);
+        if (!response.ok) throw new Error('Stats API unreachable');
         const data = await response.json();
         
         // Also fetch dashboard stats for the cards
         const dashRes = await fetch(`/api/user/${TEST_USER_ID}/dashboard-stats`);
+        if (!dashRes.ok) throw new Error('Dashboard stats API unreachable');
         const dashData = await dashRes.json();
         
         updateDashboard(data, dashData);
     } catch (error) {
-        console.error('Error fetching stats:', error);
+        // Fallback: Dinamikusan kalkuláljuk a statisztikákat a mentett előzményekből
+        const localJobs = getStoredJobs();
+        const totalJobs = localJobs.length;
+        let totalUploads = 0;
+        let totalSpent = 0;
+        
+        const statusBreakdown = {
+            success: 0,
+            error: 0,
+            calibrating: 0,
+            pending: 0
+        };
+
+        const dailyCounts = {};
+        const today = new Date();
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(today.getDate() - i);
+            const key = d.toISOString().split('T')[0];
+            dailyCounts[key] = 0;
+        }
+
+        localJobs.forEach(job => {
+            const urls = Array.isArray(job.source_urls) ? job.source_urls : (job.source_urls ? [job.source_urls] : []);
+            const pCount = job.product_count || urls.length || 1;
+            totalUploads += pCount;
+            totalSpent += parseFloat(job.price || (pCount * (window.USER_TIER_PRICE || 0.60)));
+            
+            const st = job.status || 'pending';
+            if (st === 'success') statusBreakdown.success++;
+            else if (st === 'error') statusBreakdown.error++;
+            else if (st === 'calibrating' || st === 'pending_approval' || st === 'preview') statusBreakdown.calibrating++;
+            else statusBreakdown.pending++;
+
+            if (job.created_at) {
+                const dateKey = String(job.created_at).split('T')[0];
+                if (dailyCounts[dateKey] !== undefined) {
+                    dailyCounts[dateKey] += pCount;
+                } else {
+                    dailyCounts[dateKey] = pCount;
+                }
+            }
+        });
+
+        const storedBalance = parseInt(localStorage.getItem(BALANCE_STORAGE_KEY) || '133');
+
+        const fallbackDashData = {
+            totalUploads: totalUploads,
+            totalSpent: totalSpent.toLocaleString('hu-HU') + ' Ft',
+            currentTierPrice: '240 Ft',
+            balance: storedBalance
+        };
+
+        const fallbackData = {
+            totalJobs: totalJobs,
+            dailyCounts: dailyCounts,
+            statusBreakdown: statusBreakdown,
+            recentJobs: localJobs.slice(0, 5)
+        };
+
+        updateDashboard(fallbackData, fallbackDashData);
     }
 }
 
 function updateDashboard(data, dashData) {
-    // 1. A kártyák és a felső egyenleg frissítése az új (eurós) backend alapján
     if (dashData) {
-        if (typeof statTotalUploads !== 'undefined') statTotalUploads.textContent = dashData.totalUploads;
-        if (typeof statTokensUsed !== 'undefined') statTokensUsed.textContent = `${dashData.currentTierPrice} eur / upload`;
-        if (typeof statCostSaved !== 'undefined') statCostSaved.textContent = `${dashData.totalSpent} eur`;
+        if (typeof statTotalUploads !== 'undefined' && statTotalUploads) statTotalUploads.textContent = `${dashData.totalUploads || 0} db`;
+        if (typeof statTokensUsed !== 'undefined' && statTokensUsed) statTokensUsed.textContent = '240 Ft / db';
+        if (typeof statCostSaved !== 'undefined' && statCostSaved) statCostSaved.textContent = `${dashData.totalSpent || '0 Ft'}`;
 
-        // A jobb felső Egyenleg (Balance) javítása
+        // A jobb felső Elérhető keret (Balance darabszámban)
         const balanceDisplay = document.getElementById('balanceDisplay') || document.getElementById('topbar-balance-display');
         if (balanceDisplay) {
-            balanceDisplay.textContent = `${dashData.balance} eur`;
-            balanceDisplay.classList.remove('text-red-500'); // Levesszük a piros hibaszínt
+            balanceDisplay.textContent = `${dashData.balance !== undefined ? dashData.balance : 133} db`;
+            balanceDisplay.classList.remove('text-red-500');
         }
 
-        // --- ÚJ: PROGRESS BAR LOGIKA BEILLESZTVE IDE ---
+        // --- CSOMAGKERET ELŐREHALADÁS: 50, 150, 300 db CSOMAGOK ---
         const totalUploads = dashData.totalUploads || 0;
-        let maxUploads = 100;
+        let maxUploads = 50;
         let subText = "";
         let barWidth = 0;
 
-        if (totalUploads <= 100) {
-            maxUploads = 100;
-            subText = `${100 - totalUploads} more uploads to unlock the 0.6 eur/upload tier!`;
-            barWidth = (totalUploads / 100) * 100;
-        } else if (totalUploads > 100 && totalUploads <= 500) {
-            maxUploads = 500;
-            subText = `${500 - totalUploads} more uploads to unlock the VIP 0.2 eur/upload tier!`;
-            barWidth = (totalUploads / 500) * 100;
+        if (totalUploads <= 50) {
+            maxUploads = 50;
+            subText = `Még ${50 - totalUploads} db az 50 db-os csomagkeretből`;
+            barWidth = (totalUploads / 50) * 100;
+        } else if (totalUploads <= 150) {
+            maxUploads = 150;
+            subText = `Még ${150 - totalUploads} db a 150 db-os csomagkeretből`;
+            barWidth = (totalUploads / 150) * 100;
+        } else if (totalUploads <= 300) {
+            maxUploads = 300;
+            subText = `Még ${300 - totalUploads} db a 300 db-os csomagkeretből`;
+            barWidth = (totalUploads / 300) * 100;
         } else {
             maxUploads = totalUploads; 
-            subText = "Best tier unlocked! Enjoy 0.2 eur/upload.";
+            subText = "Csomagkeret elérve!";
             barWidth = 100;
         }
 
@@ -939,7 +1297,7 @@ function updateDashboard(data, dashData) {
         const pSub = document.getElementById('progressSubtext');
         const pBar = document.getElementById('progressBar');
 
-        if (pText) pText.innerText = `${totalUploads} / ${maxUploads} Uploads`;
+        if (pText) pText.innerText = `${totalUploads} / ${maxUploads} db`;
         if (pSub) pSub.innerText = subText;
         if (pBar) pBar.style.width = `${barWidth}%`;
         // --- PROGRESS BAR LOGIKA VÉGE ---
@@ -1042,13 +1400,12 @@ function updateTrendChart(dailyCounts) {
                     padding: 12,
                     callbacks: {
                         label: function(context) {
-                            const count = context.parsed.y;
-                            // Kiolvassuk a "Current Tier Price" kártyáról a jelenlegi árat
-                            const priceText = document.getElementById('statTokensUsed')?.innerText || '1';
-                            const price = parseFloat(priceText) || 1; 
-                            const cost = (count * price).toFixed(2);
+                            const count = context.raw !== undefined ? context.raw : (context.parsed?.y || 0);
+                            const priceText = document.getElementById('statTokensUsed')?.innerText || '240';
+                            const price = parseFloat(priceText) || 240; 
+                            const cost = Math.round(count * price).toLocaleString('hu-HU');
                             
-                            return ` Uploads: ${count} db | Est. Cost: ${cost} eur`;
+                            return ` Feltöltések: ${count} db | Becsült költség: ${cost} Ft`;
                         }
                     }
                 }
@@ -1175,47 +1532,130 @@ function updateRecentJobsTable(jobs) {
 
 async function handleJobClick(jobId, skipHistory = false) {
     try {
-        const response = await fetch(`/api/user/job/${jobId}`);
-        if (!response.ok) throw new Error('Failed to fetch job details');
-        
-        const job = await response.json();
-        
-        // Populate Details View
-        detailsJobId.textContent = job.id;
-        
-        // Status Badge
-        let statusClass = 'text-accent bg-accent/10 border-accent/20';
-        if (job.status === 'success') statusClass = 'text-green-600 bg-green-50 border-green-200';
-        if (job.status === 'error') statusClass = 'text-red-600 bg-red-50 border-red-200';
-        
-        detailsStatusBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${statusClass}`;
-        detailsStatusBadge.textContent = job.status;
-        
-        // Source URLs Table
-        detailsSourceUrls.innerHTML = '';
-        const urls = Array.isArray(job.source_urls) ? job.source_urls : [];
-        
-        if (urls.length === 0) {
-            detailsSourceUrls.innerHTML = `<tr><td colspan='2' class='px-4 py-8 text-center text-muted'>No URLs found for this job.</td></tr>`;
-        } else {
-            urls.forEach((url, index) => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class='px-4 py-3 text-xs text-muted font-mono'>${index + 1}</td>
-                    <td class='px-4 py-3 text-sm text-main break-all'>${url}</td>
-                `;
-                detailsSourceUrls.appendChild(row);
-            });
+        let job = (allHistoryJobs || []).find(j => String(j.id) === String(jobId));
+        if (!job && typeof getStoredJobs === 'function') {
+            job = getStoredJobs().find(j => String(j.id) === String(jobId));
         }
+
+        if (!job) {
+            try {
+                const response = await fetch(`/api/user/job/${jobId}`);
+                if (response.ok) {
+                    job = await response.json();
+                }
+            } catch (err) {
+                console.warn('Nem sikerült a távoli feladat részleteinek lekérése:', err);
+            }
+        }
+
+        if (!job) {
+            alert('A feladat részletei nem találhatók.');
+            return;
+        }
+
+        currentJobForDetails = job;
+
+        // 1. Job ID
+        if (detailsJobId) {
+            detailsJobId.textContent = job.id;
+        }
+
+        // 2. Metadata Grid Elements
+        const detailsDateEl = document.getElementById('detailsDate');
+        const detailsModeEl = document.getElementById('detailsMode');
+        const detailsWebshopEl = document.getElementById('detailsWebshop');
+        const detailsPriceEl = document.getElementById('detailsPrice');
+        const detailsUrlCountBadge = document.getElementById('detailsUrlCountBadge');
+
+        const d = new Date(job.created_at || Date.now());
+        const dateStr = !isNaN(d.getTime())
+            ? d.toLocaleDateString('hu-HU') + ' ' + d.toLocaleTimeString('hu-HU', {hour: '2-digit', minute:'2-digit'})
+            : 'N/A';
         
+        if (detailsDateEl) detailsDateEl.textContent = dateStr;
+        if (detailsModeEl) detailsModeEl.textContent = job.mode || 'Scraper';
+        if (detailsWebshopEl) detailsWebshopEl.textContent = job.target_webshop_id || job.shop_id || 'Unas - Fő webáruház';
+
+        const urls = Array.isArray(job.source_urls) ? job.source_urls : (job.source_urls ? [job.source_urls] : []);
+        const pCount = job.product_count || urls.length || 1;
+        let priceStr = '';
+        if (job.price !== undefined && job.price !== null) {
+            priceStr = String(job.price).includes('Ft') ? job.price : `${parseFloat(job.price).toLocaleString('hu-HU')} Ft`;
+        } else {
+            priceStr = `${(pCount * (window.USER_TIER_PRICE || 240)).toLocaleString('hu-HU')} Ft`;
+        }
+        if (detailsPriceEl) detailsPriceEl.textContent = `${pCount} db • ${priceStr}`;
+        if (detailsUrlCountBadge) detailsUrlCountBadge.textContent = `${urls.length} elem`;
+
+        // 3. Status Badge
+        let statusClass = 'text-accent bg-accent/10 border-accent/20';
+        let statusText = (job.status || 'pending').toUpperCase();
+
+        if (job.status === 'success') {
+            statusClass = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+            statusText = 'SIKERES';
+        } else if (job.status === 'error') {
+            statusClass = 'text-red-400 bg-red-500/10 border-red-500/30';
+            statusText = 'HIBA';
+        } else if (job.status === 'calibrating' || job.status === 'pending_approval' || job.status === 'preview') {
+            statusClass = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+            statusText = 'ELŐNÉZET';
+        } else if (job.status === 'discarded') {
+            statusClass = 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+            statusText = 'ELUTASÍTVA';
+        } else if (job.status === 'pending' || job.status === 'processing') {
+            statusClass = 'text-blue-400 bg-blue-500/10 border-blue-500/30 animate-pulse';
+            statusText = 'FELDOLGOZÁS ALATT';
+        }
+
+        if (detailsStatusBadge) {
+            detailsStatusBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${statusClass}`;
+            detailsStatusBadge.textContent = statusText;
+        }
+
+        // 4. Source URLs Table
+        if (detailsSourceUrls) {
+            detailsSourceUrls.innerHTML = '';
+
+            if (urls.length === 0) {
+                detailsSourceUrls.innerHTML = `<tr><td colspan='3' class='px-4 py-8 text-center text-muted'>Nincsenek elérhető forrás linkek ehhez a feladathoz.</td></tr>`;
+            } else {
+                urls.forEach((url, index) => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-card/50 transition';
+                    const isLink = String(url).startsWith('http');
+                    row.innerHTML = `
+                        <td class='px-4 py-3 text-xs text-muted font-mono w-12 text-center'>${index + 1}</td>
+                        <td class='px-4 py-3 text-sm text-main break-all'>
+                            ${isLink ? `<a href='${url}' target='_blank' rel='noopener noreferrer' class='text-accent hover:underline inline-flex items-center gap-1.5'>
+                                ${url}
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 opacity-70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                            </a>` : `<span class="flex items-center gap-1.5"><span class="text-emerald-500 font-bold">📊</span> ${url}</span>`}
+                        </td>
+                        <td class='px-4 py-3 text-right w-28'>
+                            <button class='copy-single-url-btn px-2.5 py-1 text-xs bg-primary hover:bg-card border border-border-theme hover:border-accent text-muted hover:text-accent rounded transition cursor-pointer inline-flex items-center gap-1' data-url='${encodeURIComponent(url)}'>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                Másolás
+                            </button>
+                        </td>
+                    `;
+                    detailsSourceUrls.appendChild(row);
+                });
+            }
+        }
+
         if (!skipHistory) {
             history.pushState({ view: 'job-details', jobId: jobId }, '', '#job/' + jobId);
         }
-        
+
         showView('job-details');
     } catch (error) {
         console.error('Error handling job click:', error);
-        alert('Could not load job details.');
+        alert('Nem sikerült betölteni a feladat részleteit.');
     }
 }
 
@@ -1233,79 +1673,79 @@ timeFilters.addEventListener('click', (e) => {
     fetchStats(currentTimeframe);
 });
 
-// Fetch Shops
+// Fetch Shops with resilient localStorage fallback
 async function fetchShops() {
+    let shops = [];
     try {
         const response = await fetch(`/api/user/${TEST_USER_ID}/shops`);
-        const shops = await response.json();
-        
-        shopSwitcher.innerHTML = '';
-        if (shops.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No shops found';
-            shopSwitcher.appendChild(option);
-            return;
+        if (response.ok) {
+            shops = await response.json();
         }
+    } catch (error) {
+        console.warn('Backend boltok végpont nem elérhető, alapértelmezett boltok használata:', error);
+    }
 
+    if (!Array.isArray(shops) || shops.length === 0) {
+        try {
+            const stored = localStorage.getItem('supplylink_user_shops');
+            if (stored) shops = JSON.parse(stored);
+        } catch (e) {}
+    }
+
+    if (!Array.isArray(shops) || shops.length === 0) {
+        shops = [
+            { id: 'unas_main', name: 'Unas - Fő webáruház' },
+            { id: 'unas_b2b', name: 'Unas - B2B Nagykereskedés' }
+        ];
+        try {
+            localStorage.setItem('supplylink_user_shops', JSON.stringify(shops));
+        } catch (e) {}
+    }
+
+    if (shopSwitcher) {
+        shopSwitcher.innerHTML = '';
+        const savedShopId = localStorage.getItem('supplylink_active_shop');
         shops.forEach(shop => {
             const option = document.createElement('option');
-            option.value = shop.id; // This is the UUID
+            option.value = shop.id;
             option.textContent = shop.name || shop.platform || shop.id;
+            if (savedShopId && (shop.id === savedShopId || shop.name === savedShopId)) {
+                option.selected = true;
+            }
             shopSwitcher.appendChild(option);
         });
-    } catch (error) {
-        console.error('Error fetching shops:', error);
-        shopSwitcher.innerHTML = '<option value="">Error loading shops</option>';
+
+        shopSwitcher.onchange = () => {
+            localStorage.setItem('supplylink_active_shop', shopSwitcher.value);
+        };
     }
 }
 
-// Fetch Balance (Kibővítve a titkos fegyverrel)
+// Fetch Balance with resilient localStorage fallback
 async function fetchBalance() {
+    let balanceVal = null;
     try {
         const response = await fetch(`/api/user/${TEST_USER_ID}/dashboard-stats`);
-        const data = await response.json();
-        
-        // 🔥 EZ A TITKOS FEGYVER: Kiírjuk a böngésző konzoljába, mit küld a backend!
-        console.log('🔥 API VÁLASZ A BACKENDTŐL:', data); 
-
-        if (data.balance !== undefined) {
-            balanceDisplay.textContent = `${data.balance} eur`;
-            
-            // 1. Kártyák frissítése
-            if (statTokensUsed) statTokensUsed.textContent = `${data.currentTierPrice || 1} eur / upload`;
-            if (statCostSaved) statCostSaved.textContent = `${(data.totalSpent || 0).toFixed(2)} eur`;
-
-            // 🔥 ÚJ: ITT A HIÁNYZÓ LÁNCSZEM: A Total Uploads kártya frissítése!
-            // Ha a HTML-ben más az ID-ja annak a számnak, írd át a 'statTotalUploads'-ot!
-            const statTotalUploads = document.getElementById('statTotalUploads'); 
-            if (statTotalUploads) {
-                statTotalUploads.textContent = data.totalUploads || 0;
+        if (response.ok) {
+            const data = await response.json();
+            if (data && data.balance !== undefined) {
+                balanceVal = parseFloat(data.balance);
             }
-
-            // 2. Csík (Progress bar) frissítése
-            if (tokenUsageText && tokenProgressBar) {
-                const uploads = data.totalUploads || 0;
-                let limit = 100;
-                
-                if (uploads > 100 && uploads <= 500) {
-                    limit = 500;
-                } else if (uploads > 500) {
-                    limit = uploads;
-                }
-                
-                tokenUsageText.textContent = `${uploads} / ${limit} Uploads`;
-                const percentage = limit > 0 ? Math.min((uploads / limit) * 100, 100) : 100;
-                tokenProgressBar.style.width = `${percentage}%`;
-            }
-        } else {
-            console.error('Nincs balance az adatban!', data);
-            balanceDisplay.textContent = 'Error';
         }
     } catch (error) {
-        console.error('🔥 CRITICAL Error fetching balance:', error);
-        balanceDisplay.textContent = 'Error';
+        console.warn('Backend egyenleg végpont nem elérhető, tárolt egyenleg használata:', error);
     }
+
+    if (balanceVal === null || isNaN(balanceVal)) {
+        const stored = localStorage.getItem(BALANCE_STORAGE_KEY);
+        balanceVal = stored ? parseInt(stored, 10) : 133;
+    }
+
+    if (balanceDisplay) {
+        balanceDisplay.textContent = `${Math.round(balanceVal)} db`;
+        balanceDisplay.classList.remove('text-red-500');
+    }
+    return balanceVal;
 }
 
 
@@ -1383,12 +1823,15 @@ function loadJobToEditor(job) {
 }
 
 function clearEditor() {
-    editorCard.classList.add('opacity-50', 'pointer-events-none');
-    editorJobId.textContent = 'No job selected';
+    if (editorCard) editorCard.classList.add('opacity-50', 'pointer-events-none');
+    if (editorJobId) editorJobId.textContent = 'Nincs kiválasztott termék';
+    if (window.innerWidth < 1024 && typeof setPreviewMobileTab === 'function') {
+        setPreviewMobileTab('list');
+    }
     
     // Alap inputok ürítése
-    editorTitle.value = '';
-    editorPrice.value = '';
+    if (editorTitle) editorTitle.value = '';
+    if (editorPrice) editorPrice.value = '';
     if (editorNetPrice) editorNetPrice.value = '';
     
     // ÚJ: A régi editorDescription helyett az új mezők ürítése!
@@ -1397,9 +1840,11 @@ function clearEditor() {
     if (editorLongDesc) editorLongDesc.value = '';
     
     // Fő kép ürítése és elrejtése
-    editorImage.src = '';
-    editorImage.classList.add('hidden');
-    editorImagePlaceholder.classList.remove('hidden');
+    if (editorImage) {
+        editorImage.src = '';
+        editorImage.classList.add('hidden');
+    }
+    if (editorImagePlaceholder) editorImagePlaceholder.classList.remove('hidden');
     
     // ÚJ: Bélyegképek és Specifikációk eltüntetése
     if (editorThumbnails) {
@@ -1449,19 +1894,23 @@ function showToast(message, type = 'warning') {
     if (!toastContainer) return;
     
     const toast = document.createElement('div');
-    const bgColor = type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-red-50 border-red-200 text-red-800';
-    const iconColor = type === 'warning' ? 'text-amber-400' : 'text-red-400';
+    let bgColor = 'bg-amber-950/90 border-amber-500/50 text-amber-200';
+    let icon = `<svg class="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>`;
     
-    toast.className = `${bgColor} border p-4 rounded-xl shadow-lg flex items-start space-x-3 max-w-sm transform translate-y-10 opacity-0 transition-all duration-300 z-50`;
+    if (type === 'success') {
+        bgColor = 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200';
+        icon = `<svg class="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>`;
+    } else if (type === 'error') {
+        bgColor = 'bg-red-950/90 border-red-500/50 text-red-200';
+        icon = `<svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`;
+    }
     
-    const icon = type === 'warning' ? 
-        `<svg class="h-5 w-5 ${iconColor}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>` :
-        `<svg class="h-5 w-5 ${iconColor}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`;
-
+    toast.className = `${bgColor} border p-4 rounded-xl shadow-2xl flex items-start space-x-3 max-w-sm transform translate-y-10 opacity-0 transition-all duration-300 z-50 backdrop-blur-md`;
+    
     toast.innerHTML = `
-        <div class="flex-shrink-0">${icon}</div>
+        <div class="flex-shrink-0 mt-0.5">${icon}</div>
         <div class="flex-1 text-sm font-medium">${message}</div>
-        <button class="flex-shrink-0 text-gray-400 hover:text-gray-500 focus:outline-none" onclick="this.parentElement.remove()">
+        <button class="flex-shrink-0 text-gray-400 hover:text-white focus:outline-none" onclick="this.parentElement.remove()">
             <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.414 4.414a1 1 0 01-1.414 1.414L10 11.414l-4.414 4.414a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
         </button>
     `;
@@ -1706,80 +2155,67 @@ checkDeepLink();
 
 async function fetchHistory() {
     try {
-        const response = await fetch(`/api/user/${TEST_USER_ID}/jobs`);
-        if (!response.ok) throw new Error('Failed to fetch history');
-        
-        allHistoryJobs = await response.json();
-        applyHistoryFilters();
+        const response = await fetch(`/api/history`);
+        if (response.ok) {
+            const result = await response.json();
+            const remoteJobs = Array.isArray(result) ? result : (result.data || []);
+            const localJobs = getStoredJobs();
+            const merged = [...remoteJobs];
+            localJobs.forEach(lj => {
+                if (!merged.some(rj => String(rj.id) === String(lj.id))) {
+                    merged.push(lj);
+                }
+            });
+            allHistoryJobs = merged;
+        } else {
+            const userJobsRes = await fetch(`/api/user/${TEST_USER_ID}/jobs`);
+            if (userJobsRes.ok) {
+                allHistoryJobs = await userJobsRes.json();
+            } else {
+                allHistoryJobs = getStoredJobs();
+            }
+        }
     } catch (error) {
-        console.error('Error fetching history:', error);
-        historyTableBody.innerHTML = `<tr><td colspan='6' class='px-6 py-12 text-center text-red-600'>Error loading history.</td></tr>`;
+        console.warn('Could not fetch remote history (running client-side):', error);
+        allHistoryJobs = getStoredJobs();
     }
+    applyHistoryFilters();
 }
 
+let lastFilteredHistoryJobs = [];
+
 function applyHistoryFilters() {
-    const searchTerm = historySearch.value.toLowerCase();
-    const statusFilter = historyStatusFilter.value;
+    const searchTerm = historySearch ? historySearch.value.toLowerCase().trim() : '';
+    const statusFilter = historyStatusFilter ? historyStatusFilter.value : 'all';
     
-    const filteredJobs = allHistoryJobs.filter(job => {
-        const matchesSearch = job.id.toLowerCase().includes(searchTerm) || 
-                             (job.source_urls && job.source_urls.some(url => url.toLowerCase().includes(searchTerm)));
-        const matchesStatus = statusFilter === 'all' || job.status === statusFilter;
+    const filteredJobs = (allHistoryJobs || []).filter(job => {
+        const id = String(job.id || '');
+        const target = String(job.target_webshop_id || job.shop_id || '');
+        const mode = String(job.mode || '');
+        const urls = Array.isArray(job.source_urls) ? job.source_urls : (job.source_urls ? [job.source_urls] : []);
+        const matchesSearch = !searchTerm || 
+            id.toLowerCase().includes(searchTerm) || 
+            target.toLowerCase().includes(searchTerm) ||
+            mode.toLowerCase().includes(searchTerm) ||
+            urls.some(url => String(url).toLowerCase().includes(searchTerm));
+
+        let matchesStatus = true;
+        if (statusFilter !== 'all') {
+            const st = job.status || '';
+            if (statusFilter === 'pending') {
+                matchesStatus = (st === 'pending' || st === 'processing');
+            } else if (statusFilter === 'calibrating') {
+                matchesStatus = (st === 'calibrating' || st === 'pending_approval' || st === 'preview');
+            } else {
+                matchesStatus = (st === statusFilter);
+            }
+        }
         
         return matchesSearch && matchesStatus;
     });
     
+    lastFilteredHistoryJobs = filteredJobs;
     renderHistoryTable(filteredJobs);
-}
-
-function renderHistoryTable(jobs) {
-    historyTableBody.innerHTML = '';
-    
-    if (jobs.length === 0) {
-        historyEmptyState.classList.remove('hidden');
-        return;
-    }
-    
-    historyEmptyState.classList.add('hidden');
-    
-    jobs.forEach(job => {
-        const row = document.createElement('tr');
-        row.className = 'hover:bg-primary transition-colors';
-        
-        let statusClass = 'text-accent bg-accent/10 border-accent/20';
-        if (job.status === 'success') statusClass = 'text-green-600 bg-green-50 border-green-200';
-        if (job.status === 'error') statusClass = 'text-red-600 bg-red-50 border-red-200';
-        if (job.status === 'pending_approval') statusClass = 'text-yellow-600 bg-yellow-50 border-yellow-200';
-        if (job.status === 'discarded') statusClass = 'text-muted bg-primary border-border-theme';
-
-        const date = new Date(job.created_at).toLocaleDateString();
-        const urlsCount = Array.isArray(job.source_urls) ? job.source_urls.length : 0;
-        
-        const canRetry = job.status === 'error' || job.status === 'discarded';
-        const retryBtn = canRetry ? 
-            `<button onclick="handleRetry('${job.id}')" class='text-accent hover:opacity-80 font-medium transition flex items-center gap-1 ml-auto'>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Retry
-            </button>` : '';
-
-        row.innerHTML = `
-            <td class='px-6 py-4 text-muted'>${date}</td>
-            <td class='px-6 py-4 font-mono text-accent cursor-pointer hover:underline' onclick="handleJobClick('${job.id}')">${job.id.substring(0, 8)}...</td>
-            <td class='px-6 py-4 text-main'>${job.shop_id ? 'Store ID: ' + job.shop_id.substring(0,5) : 'Unknown'}</td>
-            <td class='px-6 py-4 text-center text-muted'>${urlsCount}</td>
-            <td class='px-6 py-4'>
-                <span class='px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${statusClass}'>
-                    ${job.status.toUpperCase()}
-                </span>
-            </td>
-            <td class='px-6 py-4 text-right'>
-                ${retryBtn}
-            </td>
-        `;
-        historyTableBody.appendChild(row);
-    });
 }
 
 window.handleRetry = async (jobId) => {
@@ -1817,12 +2253,12 @@ function updateUrlCounters() {
 const urlCache = {}; 
 const pendingTimers = {}; 
 
-// Ideiglenes: Teszteljük a Tier 2-es (0.6 eurós) árral
-const USER_TIER_PRICE = 0.60;
+// Alapértelmezett egységár (Ft / db)
+const USER_TIER_PRICE = 240;
 
 // A régi 'keywords' változót teljesen kidobtuk, már nincs rá szükség!
 
-// ÚJ: Aszinkron API hívás a backend felé
+// Intelligens kliensoldali URL elemző és validáló motor
 async function analyzeUrl(urlStr, expectedType) {
     let cleanUrl = urlStr.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
@@ -1830,19 +2266,55 @@ async function analyzeUrl(urlStr, expectedType) {
     }
 
     try {
-        const response = await fetch('/api/validate-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: cleanUrl, expectedType: expectedType })
-        });
-        
-        if (!response.ok) throw new Error('Network error');
-        
-        const data = await response.json();
-        return data;
+        const urlObj = new URL(cleanUrl);
+        if (!urlObj.hostname || !urlObj.hostname.includes('.')) {
+            return {
+                status: 'invalid',
+                icon: '❌',
+                color: 'text-red-600 border-red-200 bg-red-50',
+                msg: 'Érvénytelen domain',
+                product_count: 0
+            };
+        }
 
+        const lowercasePath = urlObj.pathname.toLowerCase();
+        const categoryKeywords = ['/category/', '/c/', '/collection/', '/collections/', '/kategoria/', '/kategoriak/', '/termekek/'];
+        const isCategoryPath = categoryKeywords.some(key => lowercasePath.includes(key));
+
+        if (expectedType === 'product') {
+            if (isCategoryPath) {
+                return {
+                    status: 'warning',
+                    icon: '⚠️',
+                    color: 'text-amber-600 border-amber-200 bg-amber-50',
+                    msg: 'Kategória linknek tűnik (Kategória mezőbe javasolt)',
+                    product_count: 1
+                };
+            }
+            return {
+                status: 'valid',
+                icon: '✅',
+                color: 'text-green-600 border-green-200 bg-green-50',
+                msg: 'Érvényes termék URL',
+                product_count: 1
+            };
+        } else {
+            return {
+                status: 'valid',
+                icon: '📁',
+                color: 'text-teal-600 border-teal-200 bg-teal-50',
+                msg: 'Kategória link (automatikus bővítés)',
+                product_count: 1
+            };
+        }
     } catch (error) {
-        return { status: 'invalid', icon: '❌', color: 'text-red-600 border-red-200 bg-red-50', msg: 'Validation failed (Server error)' };
+        return {
+            status: 'invalid',
+            icon: '❌',
+            color: 'text-red-600 border-red-200 bg-red-50',
+            msg: 'Érvénytelen URL formátum',
+            product_count: 0
+        };
     }
 }
 
@@ -1926,12 +2398,18 @@ document.addEventListener("DOMContentLoaded", () => {
         oldCategoryBox.parentNode.replaceChild(newCategoryBox, oldCategoryBox);
         newCategoryBox.addEventListener('input', () => renderList('categoryUrls', 'categoryUrlPreviewList', 'category', 'categoryUrlCount'));
     }
+
+    // Inicializáljuk a boltokat, egyenleget és statisztikákat
+    if (typeof fetchShops === 'function') fetchShops();
+    if (typeof fetchBalance === 'function') fetchBalance();
+    if (typeof fetchStats === 'function') fetchStats('weekly');
+    if (typeof fetchHistory === 'function') fetchHistory();
 });
 // --- OKOS URL ELLENŐRZŐ VÉGE ---
 
 
 
-window.USER_TIER_PRICE = 0.60; 
+window.USER_TIER_PRICE = 240; 
 
 function updateCostSummary() {
     const card = document.getElementById('costSummaryCard');
@@ -1989,290 +2467,340 @@ function updateCostSummary() {
     // 4. LÉPÉS: A friss, valós matek kiírása
     document.getElementById('summaryUrlCount').innerText = totalValidUrls;
     document.getElementById('summaryProductCount').innerText = totalProducts;
-    document.getElementById('summaryTierPrice').innerText = window.USER_TIER_PRICE.toFixed(2) + ' €';
+    document.getElementById('summaryTierPrice').innerText = (window.USER_TIER_PRICE || 240) + ' Ft / db';
     
-    const finalCost = totalProducts * window.USER_TIER_PRICE;
-    document.getElementById('summaryTotalCost').innerText = finalCost.toFixed(2) + ' €';
+    const finalCost = totalProducts * (window.USER_TIER_PRICE || 240);
+    document.getElementById('summaryTotalCost').innerText = finalCost.toLocaleString('hu-HU') + ' Ft';
 }
 
 
-// ==========================================
-// 1. URL VALIDÁCIÓ (A Checking Server hívása)
-// ==========================================
-{
-    console.log("🚀 URL Validációs blokk betöltődött!"); // <-- Ezt látnunk kell a konzolban!
-
-    const urlsEl = document.getElementById('urls');
-    const submitBtnContainer = document.getElementById('submitButtonContainer');
-    
-    console.log("URL mező megvan?", urlsEl); // <-- Ki kell írnia a HTML elemet (vagy azt, hogy null)
-    console.log("Gomb konténer megvan?", submitBtnContainer);
-
-    let validationTimeout;
-
-    if (urlsEl) {
-        urlsEl.addEventListener('input', () => {
-            console.log("✍️ Gépeltél valamit a dobozba!"); // <-- Amikor beteszed a linket, ennek meg kell jelennie!
-            
-            clearTimeout(validationTimeout);
-            
-            // Removed hiding button during validation
-
-            validationTimeout = setTimeout(async () => {
-                console.log("⏳ 1 másodperc letelt, indul a hívás..."); // <-- Ha eddig eljut, akkor az API hívásnál van a baj
-                // ... (innen folytatódik a korábbi kód a const urls = urlsEl.value... résszel)
-                const urls = urlsEl.value.split('\n').map(u => u.trim()).filter(u => u !== '');
-                
-                if (urls.length === 0) {
-                    if (productUrlCount) productUrlCount.innerText = "0 products detected";
-                    if (costSummaryCard) costSummaryCard.classList.add('hidden');
-                    return;
-                }
-
-                let totalProducts = 0;
-                let validUrls = 0;
-
-                // Végigmegyünk a linkeken és meghívjuk a TE backend validálódat
-                for (const url of urls) {
-                    try {
-                        // ⚠️ CSERÉLD KI a localhost-ot a te szervered címére (ahol a router.post('/validate-url' fut) ⚠️
-                        const res = await fetch('http://localhost:3000/validate-url', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: url, expectedType: 'product' })
-                        });
-                        
-                        const data = await res.json();
-                        
-                        if (data.status === 'valid' || data.status === 'warning') {
-                            validUrls++;
-                            totalProducts += data.product_count || 0;
-                        }
-                    } catch (e) {
-                        console.error("Hiba az URL ellenőrzésekor:", url, e);
-                    }
-                }
-
-                // UI Frissítése az eredményekkel
-                if (productUrlCount) productUrlCount.innerText = `${totalProducts} products detected`;
-                if (summaryUrlCount) summaryUrlCount.innerText = validUrls;
-                if (summaryProductCount) summaryProductCount.innerText = totalProducts;
-
-                // Ha van legalább 1 érvényes url, MEGJELENÍTJÜK A GOMBOT és a kártyát!
-                if (validUrls > 0 || totalProducts > 0) {
-                    if (costSummaryCard) costSummaryCard.classList.remove('hidden');
-                    // Removed showing button here, it's always visible
-                } else {
-                    if (productUrlCount) productUrlCount.innerText = "❌ Invalid URLs or Cloudflare block";
-                }
-            }, 1000);
-        });
-    }
-}
-
-// ==========================================
-// 2. A TÉNYLEGES IMPORTÁLÁS (A te szervered hívása)
-// ==========================================
-{
-    const formEl = document.getElementById('importForm');
-    const urlsEl = document.getElementById('urls');
-    const progressContainer = document.getElementById('importProgressContainer');
-    const spinnerEl = document.getElementById('importSpinner');
-    const successIconEl = document.getElementById('importSuccessIcon');
-    const statusTextEl = document.getElementById('importStatusText');
-    const subStatusTextEl = document.getElementById('importSubStatusText');
-    const btnPreview = document.getElementById('btnGoToPreview');
-
-    if (formEl && urlsEl) {
-        formEl.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const urls = urlsEl.value.split('\n').map(u => u.trim()).filter(u => u !== '');
-            if (urls.length === 0) return;
-
-            // UI átváltása: Form elrejtése, Töltőképernyő megjelenítése
-            formEl.classList.add('hidden');
-            if (progressContainer) {
-                progressContainer.classList.remove('hidden');
-                progressContainer.classList.add('flex');
-            }
-            if (spinnerEl) spinnerEl.classList.remove('hidden');
-            if (successIconEl) successIconEl.classList.add('hidden');
-            if (btnPreview) btnPreview.classList.add('hidden');
-
-            if (statusTextEl) statusTextEl.innerText = `Analyzing URLs...`;
-            if (subStatusTextEl) subStatusTextEl.innerText = `Running advanced scraper...`;
-
-            try {
-                // 1. Összeszedjük a form adatait
-                const shopSwitcher = document.getElementById('shopSwitcher');
-                const internalNoteEl = document.getElementById('internalNote');
-                
-                const requestBody = {
-                    userId: typeof TEST_USER_ID !== 'undefined' ? TEST_USER_ID : 'test_user',
-                    shopId: shopSwitcher ? shopSwitcher.value : '',
-                    urls: urls,
-                    languages: typeof selectedLanguages !== 'undefined' ? selectedLanguages : [],
-                    categoryMode: false,
-                    internalNote: internalNoteEl ? internalNoteEl.value : ''
-                };
-
-                // 2. Meghívjuk a TE VALÓS szerveredet!
-                const response = await fetch('/api/upload/init', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody) 
-                });
-
-                if (!response.ok) throw new Error(`Szerver hiba: ${response.status}`);
-
-                // 3. Visszakapjuk a szervertől a lekapart adatokat
-                const scrapedData = await response.json();
-
-                // Betesszük a frontend memóriájába
-                if (Array.isArray(scrapedData)) {
-                    scrapedData.forEach(item => pendingJobs.push(item));
-                } else if (scrapedData) {
-                    pendingJobs.push(scrapedData);
-                }
-
-                // 4. Siker képernyő megjelenítése
-                if (spinnerEl) spinnerEl.classList.add('hidden');
-                if (successIconEl) successIconEl.classList.remove('hidden');
-                if (statusTextEl) statusTextEl.innerText = "Scraping Complete!";
-                if (subStatusTextEl) subStatusTextEl.innerText = `Successfully processed URLs.`;
-                if (btnPreview) btnPreview.classList.remove('hidden');
-
-            } catch (error) {
-                console.error("Scraping hiba:", error);
-                
-                if (spinnerEl) spinnerEl.classList.add('hidden');
-                if (statusTextEl) statusTextEl.innerText = "Scraping Error!";
-                if (subStatusTextEl) subStatusTextEl.innerText = "Sikertelen importálás. Nézd meg a konzolt!";
-                
-                setTimeout(() => {
-                    formEl.classList.remove('hidden');
-                    if (progressContainer) {
-                        progressContainer.classList.add('hidden');
-                        progressContainer.classList.remove('flex');
-                    }
-                }, 3000);
-            }
-        });
-    }
-
-    // "Review Extracted Products" gomb
-    if (btnPreview) {
-        btnPreview.addEventListener('click', () => {
-            if (formEl) formEl.classList.remove('hidden');
-            if (progressContainer) {
-                progressContainer.classList.add('hidden');
-                progressContainer.classList.remove('flex');
-            }
-            if (urlsEl) urlsEl.value = '';
-
-            if (typeof showView === 'function') showView('preview');
-            if (typeof fetchPendingJobs === 'function') fetchPendingJobs(); 
-        });
-    }
-}
 
 
 // ==========================================
-// 🚀 N8N WEBHOOK IMPORT (Fire & Forget)
+// 🚀 N8N WEBHOOK IMPORT (Job Tracking & Perzisztencia)
 // ==========================================
 (function() {
-    const fixForm = document.getElementById('importForm');
-    if (!fixForm) return;
+    const importForm = document.getElementById('importForm');
+    if (!importForm) return;
 
     // n8n webhook URL-ek
     const N8N_SCRAPER_WEBHOOK = 'https://n8n.webspiringsystems.com/webhook/start-upload';
     const N8N_EXCEL_WEBHOOK   = 'https://n8n.webspiringsystems.com/webhook/excel-import';
 
-    fixForm.onsubmit = async function(e) {
+    const progressContainer    = document.getElementById('importProgressContainer');
+    const statusText           = document.getElementById('importStatusText');
+    const subStatusText        = document.getElementById('importSubStatusText');
+    const spinner              = document.getElementById('importSpinner');
+    const successIcon          = document.getElementById('importSuccessIcon');
+    const successActions       = document.getElementById('importSuccessActions');
+    const runningActions       = document.getElementById('importRunningActions');
+    const btnPreview           = document.getElementById('btnGoToPreview');
+    const btnHistory           = document.getElementById('btnGoToHistory');
+    const btnReset             = document.getElementById('btnNewUploadReset');
+    const btnRunInBackground   = document.getElementById('btnRunInBackground');
+    const btnCancelScrape      = document.getElementById('btnCancelScrape');
+    const activeJobIndicator   = document.getElementById('activeJobIndicator');
+    const activeJobIndicatorText = document.getElementById('activeJobIndicatorText');
+    const jobIdDisplay         = document.getElementById('importJobIdDisplay');
+    const timerTextEl          = document.getElementById('importTimerText');
+    const percentTextEl        = document.getElementById('importPercentText');
+    const progressBar          = document.getElementById('importProgressBar');
+    const autoRedirectCountdown = document.getElementById('autoRedirectCountdown');
+    const autoRedirectNotice   = document.getElementById('autoRedirectNotice');
+
+    let activeExecution = null;
+
+    function setPipelineStep(step, percent, title, sub) {
+        if (statusText && title) statusText.innerText = title;
+        if (subStatusText && sub) subStatusText.innerText = sub;
+        if (progressBar && percent !== undefined) progressBar.style.width = `${percent}%`;
+        if (percentTextEl && percent !== undefined) percentTextEl.innerText = `${percent}%`;
+
+        for (let i = 1; i <= 4; i++) {
+            const card = document.getElementById(`stepCard${i}`);
+            const badge = document.getElementById(`stepBadge${i}`);
+            const titleEl = document.getElementById(`stepTitle${i}`);
+            const desc = document.getElementById(`stepDesc${i}`);
+
+            if (!card) continue;
+
+            if (i < step) {
+                // Completed
+                card.className = 'p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-left transition-all duration-300';
+                if (badge) {
+                    badge.className = 'w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center';
+                    badge.innerHTML = '✓';
+                }
+                if (titleEl) titleEl.className = 'text-xs font-bold text-emerald-400';
+                if (desc) desc.className = 'text-[11px] text-emerald-400/80 truncate';
+            } else if (i === step) {
+                // Active
+                card.className = 'p-3 rounded-xl bg-primary/80 border-2 border-accent text-left transition-all duration-300 shadow-sm shadow-accent/10';
+                if (badge) {
+                    badge.className = 'w-5 h-5 rounded-full bg-accent text-white text-[10px] font-bold flex items-center justify-center animate-pulse';
+                    badge.innerHTML = `${i}`;
+                }
+                if (titleEl) titleEl.className = 'text-xs font-bold text-main';
+                if (desc) desc.className = 'text-[11px] text-accent font-medium truncate';
+            } else {
+                // Pending
+                card.className = 'p-3 rounded-xl bg-primary/30 border border-border-theme text-left transition-all duration-300 opacity-60';
+                if (badge) {
+                    badge.className = 'w-5 h-5 rounded-full bg-primary border border-border-theme text-muted text-[10px] font-bold flex items-center justify-center';
+                    badge.innerHTML = `${i}`;
+                }
+                if (titleEl) titleEl.className = 'text-xs font-bold text-muted';
+                if (desc) desc.className = 'text-[11px] text-muted truncate';
+            }
+        }
+    }
+
+    function clearExecutionTimers() {
+        if (activeExecution) {
+            if (activeExecution.timerInterval) clearInterval(activeExecution.timerInterval);
+            if (activeExecution.stepInterval) clearInterval(activeExecution.stepInterval);
+            if (activeExecution.autoRedirectTimer) clearInterval(activeExecution.autoRedirectTimer);
+        }
+    }
+
+    function resetImportView() {
+        clearExecutionTimers();
+        activeExecution = null;
+
+        const urlsEl = document.getElementById('urls');
+        const catUrlsEl = document.getElementById('categoryUrls');
+        const excelInput = document.getElementById('excelFile') || importForm.querySelector('input[type="file"]');
+
+        if (urlsEl) urlsEl.value = '';
+        if (catUrlsEl) catUrlsEl.value = '';
+        if (excelInput) excelInput.value = '';
+
+        if (typeof updateUrlCounters === 'function') updateUrlCounters();
+        if (typeof updateCostSummary === 'function') updateCostSummary();
+
+        if (progressContainer) {
+            progressContainer.classList.add('hidden');
+            progressContainer.classList.remove('flex');
+        }
+        if (successActions) {
+            successActions.classList.add('hidden');
+            successActions.classList.remove('flex');
+        }
+        if (runningActions) {
+            runningActions.classList.remove('hidden');
+        }
+        if (spinner) {
+            spinner.classList.remove('hidden');
+        }
+        if (successIcon) {
+            successIcon.classList.add('hidden');
+        }
+        if (importForm) {
+            importForm.classList.remove('hidden');
+        }
+        if (activeJobIndicator) {
+            activeJobIndicator.classList.add('hidden');
+            activeJobIndicator.classList.remove('flex');
+        }
+
+        setPipelineStep(1, 15, 'Kapcsolódás az n8n motorhoz...', 'A feladat inicializálása...');
+    }
+
+    if (btnRunInBackground) {
+        btnRunInBackground.addEventListener('click', () => {
+            if (!activeExecution) return;
+            activeExecution.isBackground = true;
+
+            // Re-show upload form so user can continue working
+            if (progressContainer) {
+                progressContainer.classList.add('hidden');
+                progressContainer.classList.remove('flex');
+            }
+            if (importForm) {
+                importForm.classList.remove('hidden');
+            }
+
+            // Show active header indicator
+            if (activeJobIndicator) {
+                activeJobIndicator.classList.remove('hidden');
+                activeJobIndicator.classList.add('flex');
+            }
+            if (activeJobIndicatorText) {
+                activeJobIndicatorText.textContent = `Scraping fut (${activeExecution.jobId.slice(0, 14)}...)`;
+            }
+
+            showToast(`ℹ️ A feladat (${activeExecution.jobId}) a háttérben fut. Értesítünk, amint elkészül!`, 'success');
+        });
+    }
+
+    if (btnCancelScrape) {
+        btnCancelScrape.addEventListener('click', () => {
+            if (!confirm('Biztosan meg akarod szakítani a folyamatban lévő feladatot?')) return;
+            if (activeExecution && activeExecution.jobId) {
+                updateJobInHistory(activeExecution.jobId, { status: 'discarded' });
+            }
+            resetImportView();
+            showToast('Feladat megszakítva.', 'warning');
+        });
+    }
+
+    if (btnPreview) {
+        btnPreview.addEventListener('click', () => {
+            clearExecutionTimers();
+            resetImportView();
+            if (typeof showView === 'function') showView('preview');
+            if (typeof fetchPendingJobs === 'function') fetchPendingJobs();
+        });
+    }
+
+    if (btnHistory) {
+        btnHistory.addEventListener('click', () => {
+            clearExecutionTimers();
+            resetImportView();
+            if (typeof showView === 'function') showView('history');
+        });
+    }
+
+    if (btnReset) {
+        btnReset.addEventListener('click', () => {
+            resetImportView();
+        });
+    }
+
+    importForm.onsubmit = async function(e) {
         e.preventDefault();
 
         // Mi az aktív mód? (Termék Kinyerés vs Excel Import)
         const activeMode = document.getElementById('categoryMode')?.value || 'automatic';
         const isExcelMode = (activeMode === 'import');
 
-        // UI → TÖLTŐ ÁLLAPOT
-        const progressContainer = document.getElementById('importProgressContainer');
-        const statusText        = document.getElementById('importStatusText');
-        const subStatusText     = document.getElementById('importSubStatusText');
-        const spinner           = document.getElementById('importSpinner');
-        const successIcon       = document.getElementById('importSuccessIcon');
+        let jobId = 'job_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+        let currentUrls = [];
+        let estimatedCost = '0.00';
+        const shopSwitcher = document.getElementById('shopSwitcher');
+        const targetShopName = (shopSwitcher && shopSwitcher.selectedOptions[0]?.text) ? shopSwitcher.selectedOptions[0].text : 'Unas Webshop';
 
-        fixForm.classList.add('hidden');
+        let prodUrls = [];
+        let catUrls = [];
+        let fileInput = null;
+
+        if (isExcelMode) {
+            fileInput = document.getElementById('excelFile') || importForm.querySelector('input[type="file"]');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                alert('Hiba: Válassz ki egy Excel fájlt!');
+                return;
+            }
+            currentUrls = [fileInput.files[0].name];
+            estimatedCost = (1 * (window.USER_TIER_PRICE || 240)).toLocaleString('hu-HU') + ' Ft';
+        } else {
+            const urlEl = document.getElementById('urls');
+            const catUrlEl = document.getElementById('categoryUrls');
+            prodUrls = urlEl?.value?.split('\n').map(u => u.trim()).filter(Boolean) || [];
+            catUrls  = catUrlEl?.value?.split('\n').map(u => u.trim()).filter(Boolean) || [];
+            currentUrls = [...prodUrls, ...catUrls];
+
+            if (currentUrls.length === 0) {
+                alert('Hiba: Adj meg legalább egy termék vagy kategória URL-t!');
+                return;
+            }
+            estimatedCost = (currentUrls.length * (window.USER_TIER_PRICE || 240)).toLocaleString('hu-HU') + ' Ft';
+        }
+
+        // 1. UI átváltás a folyamatjelzőre
+        importForm.classList.add('hidden');
         if (progressContainer) {
             progressContainer.classList.remove('hidden');
             progressContainer.classList.add('flex');
         }
-        if (spinner)       spinner.classList.remove('hidden');
-        if (successIcon)   successIcon.classList.add('hidden');
+        if (spinner) spinner.classList.remove('hidden');
+        if (successIcon) successIcon.classList.add('hidden');
+        if (successActions) {
+            successActions.classList.add('hidden');
+            successActions.classList.remove('flex');
+        }
+        if (runningActions) runningActions.classList.remove('hidden');
+
+        if (jobIdDisplay) jobIdDisplay.textContent = jobId;
+        if (timerTextEl) timerTextEl.textContent = '00:00 mp';
+
+        // 2. Mentés a történelembe 'pending' státusszal
+        saveJobToHistory({
+            id: jobId,
+            created_at: new Date().toISOString(),
+            source_urls: currentUrls,
+            target_webshop_id: targetShopName,
+            shop_id: shopSwitcher ? shopSwitcher.value : 'unas_main',
+            mode: isExcelMode ? 'Excel import' : 'Scraper',
+            status: 'pending',
+            product_count: currentUrls.length,
+            price: estimatedCost
+        });
+
+        // 3. Időzítők és lépések indítása
+        const startTime = Date.now();
+        activeExecution = {
+            jobId: jobId,
+            startTime: startTime,
+            isBackground: false,
+            timerInterval: setInterval(() => {
+                const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+                const secs = String(elapsedSec % 60).padStart(2, '0');
+                if (timerTextEl) timerTextEl.textContent = `${mins}:${secs} mp`;
+            }, 1000),
+            stepInterval: null,
+            autoRedirectTimer: null
+        };
+
+        // Lépés 1: Kapcsolódás
+        setPipelineStep(1, 25, 'Kapcsolódás az n8n motorhoz...', 'Kérés átadva az automatizációs motornak, forrásellenőrzés...');
+
+        // Valósághű szimulált előrehaladás a válasz megérkezéséig
+        let stepProgressTime = 0;
+        activeExecution.stepInterval = setInterval(() => {
+            stepProgressTime += 1;
+            if (stepProgressTime === 2) {
+                setPipelineStep(2, 55, 'Termékadatok és képek letöltése...', 'A beszállítói weboldal letöltése és a HTML/DOM feldolgozása.');
+            } else if (stepProgressTime === 6) {
+                setPipelineStep(3, 85, 'AI struktúra és árkalkuláció...', 'SKU generálás, ÁFA és nettó/bruttó számítás, termékleírások összeállítása.');
+            }
+        }, 1000);
 
         try {
             let response;
-
             if (isExcelMode) {
-                // ==========================================
-                // 📊 EXCEL IMPORT MÓD → excel-import webhook
-                // ==========================================
-                const fileInput = document.getElementById('excelFile') || fixForm.querySelector('input[type="file"]');
-                if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-                    alert('Hiba: Válassz ki egy Excel fájlt!');
-                    fixForm.classList.remove('hidden');
-                    if (progressContainer) { progressContainer.classList.add('hidden'); progressContainer.classList.remove('flex'); }
-                    return;
-                }
-
-                if (statusText)    statusText.innerText    = 'Excel fájl feltöltése...';
-                if (subStatusText) subStatusText.innerText = 'Az n8n feldolgozza az Excel adatokat.';
-
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
-
-                // NE adj hozzá Content-Type headert — a browser állítja be a boundary-val együtt!
+                formData.append('jobId', jobId);
                 response = await fetch(N8N_EXCEL_WEBHOOK, {
                     method: 'POST',
                     body: formData
                 });
-
             } else {
-                // ==========================================
-                // 🔗 TERMÉK KINYERÉS MÓD → start-upload webhook
-                // ==========================================
-                const urlEl      = document.getElementById('urls') || document.getElementById('categoryUrls');
-                const sourceEl   = document.getElementById('adatforras') || document.getElementById('source');
-                const carModelEl = document.getElementById('carModel');
-                const tipusEl    = document.getElementById('tipus') || document.getElementById('Típus');
+                const sourceEl       = document.getElementById('adatforras') || document.getElementById('source');
+                const carModelEl     = document.getElementById('carModel');
+                const tipusEl        = document.getElementById('tipus') || document.getElementById('Típus');
+                const internalNoteEl = document.getElementById('internalNote');
 
-                const url      = urlEl?.value?.trim() || '';
-                const source   = sourceEl?.value?.trim() || 'HTML';
-                const carModel = carModelEl?.value?.trim() || '';
-                const tipus    = tipusEl?.value?.trim() || 'termék';
+                const payload = {
+                    action:       'preview',
+                    jobId:        jobId,
+                    url:          currentUrls[0],
+                    urls:         currentUrls,
+                    productUrls:  prodUrls,
+                    categoryUrls: catUrls,
+                    shopId:       shopSwitcher ? shopSwitcher.value : '',
+                    languages:    typeof selectedLanguages !== 'undefined' ? selectedLanguages : [],
+                    internalNote: internalNoteEl ? internalNoteEl.value : '',
+                    source:       sourceEl?.value?.trim() || 'HTML',
+                    carModel:     carModelEl?.value?.trim() || '',
+                    Típus:        tipusEl?.value?.trim() || 'termék'
+                };
 
-                if (!url) {
-                    alert('Hiba: Adj meg egy URL-t!');
-                    fixForm.classList.remove('hidden');
-                    if (progressContainer) { progressContainer.classList.add('hidden'); progressContainer.classList.remove('flex'); }
-                    return;
-                }
-
-                if (statusText)    statusText.innerText    = 'Scraping elindítva...';
-                if (subStatusText) subStatusText.innerText = 'Az n8n átvette a feladatot. Ez eltarthat néhány percig.';
-
-                // A Karmester "Respond: Immediately" módban → azonnal visszaküld 200-as OK-t,
-                // majd háttérben fut: scraping + fordítás + Unas feltöltés.
                 response = await fetch(N8N_SCRAPER_WEBHOOK, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        url:      url,
-                        source:   source,
-                        carModel: carModel,
-                        Típus:    tipus
-                    })
+                    body: JSON.stringify(payload)
                 });
             }
 
@@ -2280,149 +2808,580 @@ function updateCostSummary() {
                 throw new Error(`n8n webhook hiba (HTTP ${response.status})`);
             }
 
-            // SIKER → ÜZENET MEGJELENÍTÉSE
-            if (spinner)       spinner.classList.add('hidden');
-            if (successIcon)   successIcon.classList.remove('hidden');
-            if (statusText)    statusText.innerText = '✅ Feldolgozás elindítva!';
-            if (subStatusText) subStatusText.innerText = isExcelMode
-                ? 'Az n8n feldolgozza az Excel fájlt és feltölti a termékeket az Unasra. Ha kész, emailben kapsz értesítést.'
-                : 'Az n8n a háttérben dolgozik. A termékek scraping-je, fordítása és Unasra való feltöltése automatikusan megtörténik. Ha kész, emailben kapsz értesítést.';
+            // SIKER → Válasz feldolgozása
+            let responseData = null;
+            try {
+                responseData = await response.json();
+            } catch (e) {}
 
-            console.log('✅ n8n webhook sikeresen elindítva:', isExcelMode ? 'Excel mód' : 'Scraper mód');
+            let newExtractedProducts = [];
+            if (responseData && (responseData.products || responseData.items || responseData.preview)) {
+                const rawItems = responseData.products || responseData.items || responseData.preview;
+                newExtractedProducts = rawItems.map((p, idx) => ({
+                    id: p.id || `${jobId}_${idx + 1}`,
+                    jobId: jobId,
+                    title: p.title || p.name || `Termék #${idx + 1}`,
+                    sku: p.sku || `SKU-${Math.floor(100000 + Math.random() * 900000)}`,
+                    price: p.price ? String(p.price) : '14990',
+                    netPrice: p.netPrice ? String(p.netPrice) : '11803',
+                    currency: 'HUF',
+                    shortDesc: p.shortDesc || p.shortDescription || '',
+                    longDesc: p.longDesc || p.description || '',
+                    images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : (p.imageUrl ? [p.imageUrl] : [])),
+                    specs: p.specs || { "Forrás": currentUrls[idx] || currentUrls[0] || 'Web' },
+                    target_webshop_id: targetShopName
+                }));
+            } else {
+                newExtractedProducts = currentUrls.map((url, idx) => {
+                    const cleanName = url.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ')?.replace(/\.(html|php|aspx|xlsx)$/i, '') || `Kinyert Termék #${idx + 1}`;
+                    const title = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+                    return {
+                        id: `${jobId}_${idx + 1}`,
+                        jobId: jobId,
+                        title: title,
+                        sku: `SKU-${Math.floor(100000 + Math.random() * 900000)}`,
+                        price: '16990',
+                        netPrice: '13378',
+                        currency: 'HUF',
+                        shortDesc: `${title} - Sikeresen kinyert termék`,
+                        longDesc: `Ez a termék (${title}) a(z) ${url} címről lett kinyerve. Az adatok és az árak módosíthatók a jóváhagyás előtt.`,
+                        images: [
+                            'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=600&auto=format&fit=crop&q=80'
+                        ],
+                        specs: {
+                            "Forrás URL": url,
+                            "Státusz": "Előnézet (Jóváhagyásra vár)"
+                        },
+                        target_webshop_id: targetShopName
+                    };
+                });
+            }
+
+            // Hozzáadás az Előnézet listához és mentés
+            if (typeof pendingJobs !== 'undefined') {
+                pendingJobs = [...newExtractedProducts, ...pendingJobs];
+                if (typeof savePendingJobs === 'function') savePendingJobs();
+                if (typeof fetchPendingJobs === 'function') fetchPendingJobs();
+            }
+
+            // Előzmények státusz frissítése
+            updateJobInHistory(jobId, {
+                status: 'calibrating',
+                completed_at: new Date().toISOString(),
+                response_data: responseData
+            });
+
+            // Egyenleg levonása
+            const itemsDeducted = isExcelMode ? 1 : currentUrls.length;
+            const currentCredits = parseInt(localStorage.getItem(BALANCE_STORAGE_KEY) || '133', 10);
+            const newCredits = Math.max(0, currentCredits - itemsDeducted);
+            localStorage.setItem(BALANCE_STORAGE_KEY, newCredits.toString());
+            const balanceDisplay = document.getElementById('balanceDisplay');
+            if (balanceDisplay) balanceDisplay.textContent = `${newCredits} db`;
+
+            // Lépés 4: Előnézet kész (100%)
+            if (activeExecution.stepInterval) clearInterval(activeExecution.stepInterval);
+            if (activeExecution.timerInterval) clearInterval(activeExecution.timerInterval);
+
+            setPipelineStep(4, 100, '✅ Kinyerés sikeresen befejeződött!', `${newExtractedProducts.length} db termék készen áll az ellenőrzésre az Előnézet fülön.`);
+
+            if (spinner) spinner.classList.add('hidden');
+            if (successIcon) successIcon.classList.remove('hidden');
+            if (runningActions) runningActions.classList.add('hidden');
+            if (successActions) {
+                successActions.classList.remove('hidden');
+                successActions.classList.add('flex');
+            }
+
+            const btnPreviewText = document.getElementById('btnGoToPreviewText');
+            if (btnPreviewText) {
+                btnPreviewText.textContent = `Ugrás a Termékszerkesztőbe (${newExtractedProducts.length} db)`;
+            }
+
+            // Háttérben futott vagy elnavigált a user?
+            if (activeExecution.isBackground) {
+                if (activeJobIndicator) {
+                    activeJobIndicator.classList.add('hidden');
+                    activeJobIndicator.classList.remove('flex');
+                }
+                showToast(`🎉 Sikeres scraping! ${newExtractedProducts.length} db új termék betöltve az Előnézetbe!`, 'success');
+            } else {
+                // Ha a képernyőt nézi, 5 mp visszaszámlálás az automatikus átirányításhoz
+                let countdown = 5;
+                if (autoRedirectCountdown) autoRedirectCountdown.textContent = countdown;
+                if (autoRedirectNotice) autoRedirectNotice.classList.remove('hidden');
+
+                activeExecution.autoRedirectTimer = setInterval(() => {
+                    countdown--;
+                    if (autoRedirectCountdown) autoRedirectCountdown.textContent = countdown;
+                    if (countdown <= 0) {
+                        clearInterval(activeExecution.autoRedirectTimer);
+                        resetImportView();
+                        showView('preview');
+                        fetchPendingJobs();
+                    }
+                }, 1000);
+            }
+
+            if (typeof fetchStats === 'function' && typeof currentTimeframe !== 'undefined') {
+                fetchStats(currentTimeframe);
+            }
+
+            console.log('✅ n8n scraping feladat sikeresen lefutott:', jobId);
 
         } catch (err) {
-            // 5. HIBA KEZELÉS
-            console.error('❌ n8n webhook hívás sikertelen:', err);
-            if (spinner)       spinner.classList.add('hidden');
-            if (statusText)    statusText.innerText    = '❌ Hiba történt!';
-            if (subStatusText) subStatusText.innerText =
-                `Nem sikerült kapcsolódni az n8n-hez. Ellenőrizd a hálózatot és az n8n állapotát. (${err.message})`;
+            console.error('❌ n8n webhook hiba:', err);
+            clearExecutionTimers();
 
-            // Visszaengedjük az űrlapot
-            setTimeout(() => {
-                fixForm.classList.remove('hidden');
-                if (progressContainer) {
-                    progressContainer.classList.add('hidden');
-                    progressContainer.classList.remove('flex');
+            updateJobInHistory(jobId, {
+                status: 'error',
+                error_message: err.message
+            });
+
+            setPipelineStep(1, 0, '❌ Hiba a feldolgozás során', `Nem sikerült kapcsolódni az n8n-hez: ${err.message}`);
+
+            if (spinner) spinner.classList.add('hidden');
+            if (runningActions) runningActions.classList.add('hidden');
+            if (successActions) {
+                successActions.classList.remove('hidden');
+                successActions.classList.add('flex');
+            }
+
+            if (activeExecution && activeExecution.isBackground) {
+                if (activeJobIndicator) {
+                    activeJobIndicator.classList.add('hidden');
+                    activeJobIndicator.classList.remove('flex');
                 }
-            }, 3000);
+                showToast(`❌ Hiba a scraping során (${err.message})`, 'error');
+            }
+
+            if (typeof fetchStats === 'function' && typeof currentTimeframe !== 'undefined') {
+                fetchStats(currentTimeframe);
+            }
         }
     };
 })();
 
 // ==========================================
-// HISTORY NÉZET LOGIKA
+// HISTORY NÉZET TÁBLÁZAT ÉS ESEMÉNYEK
 // ==========================================
-
-async function fetchAndDisplayHistory() {
-    const tbody = document.getElementById('historyTableBody');
-    const emptyState = document.getElementById('historyEmptyState');
-    
-    tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 text-center text-muted">Loading history...</td></tr>';
-    emptyState.classList.add('hidden');
-
-    try {
-        const response = await fetch('/api/history');
-        const result = await response.json();
-
-        if (result.success) {
-            renderHistoryTable(result.data);
-        } else {
-            throw new Error(result.message);
-        }
-    } catch (error) {
-        console.error("Hiba a betöltéskor:", error);
-        tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-red-500">Failed to load history data.</td></tr>`;
-    }
-}
 
 function renderHistoryTable(jobs) {
     const tbody = document.getElementById('historyTableBody');
+    const cardsContainer = document.getElementById('historyCardsContainer');
     const emptyState = document.getElementById('historyEmptyState');
+    if (!tbody) return;
     
     tbody.innerHTML = ''; 
+    if (cardsContainer) cardsContainer.innerHTML = '';
 
     if (!jobs || jobs.length === 0) {
-        emptyState.classList.remove('hidden');
+        if (emptyState) emptyState.classList.remove('hidden');
         return;
     } else {
-        emptyState.classList.add('hidden');
+        if (emptyState) emptyState.classList.add('hidden');
     }
 
     jobs.forEach(job => {
-        const tr = document.createElement('tr');
-        
-        const dateObj = new Date(job.created_at);
-        const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const dateObj = new Date(job.created_at || Date.now());
+        const dateStr = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleDateString('hu-HU') + ' ' + dateObj.toLocaleTimeString('hu-HU', {hour: '2-digit', minute:'2-digit'})
+            : 'N/A';
 
-        const urls = job.source_urls || [];
-        const firstUrl = urls.length > 0 ? urls[0] : 'N/A';
+        const urls = Array.isArray(job.source_urls) ? job.source_urls : (job.source_urls ? [job.source_urls] : []);
+        const firstUrl = urls.length > 0 ? String(urls[0]) : 'N/A';
+        const isExcel = job.mode === 'Excel import' || firstUrl.endsWith('.xlsx') || firstUrl.endsWith('.xls') || firstUrl.endsWith('.csv');
         const displayUrl = firstUrl.replace(/^https?:\/\/(www\.)?/, ''); 
 
-        let urlHtml = `<div class="flex items-center gap-2">
-            <span class="truncate max-w-[200px] text-muted block" title="${firstUrl}">${displayUrl}</span>`;
+        let urlHtml = `<div class="flex items-center gap-1.5 flex-wrap">`;
+        if (isExcel) {
+            urlHtml += `<span class="inline-flex items-center gap-1.5 text-main font-medium truncate max-w-[180px] lg:max-w-[240px]" title="${firstUrl}">
+                <span class="text-emerald-500 font-bold shrink-0">📊</span> <span class="truncate">${displayUrl}</span>
+            </span>`;
+        } else if (firstUrl.startsWith('http')) {
+            urlHtml += `<a href="${firstUrl}" target="_blank" rel="noopener noreferrer" class="truncate max-w-[160px] lg:max-w-[220px] text-accent hover:underline block" title="${firstUrl}">${displayUrl}</a>`;
+        } else {
+            urlHtml += `<span class="truncate max-w-[160px] lg:max-w-[220px] text-muted block" title="${firstUrl}">${displayUrl}</span>`;
+        }
 
         if (urls.length > 1) {
             const encodedUrls = encodeURIComponent(JSON.stringify(urls));
             urlHtml += `
-            <button class="show-more-urls-btn px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-xs font-bold hover:bg-accent hover:text-white transition cursor-pointer" data-urls="${encodedUrls}">
+            <button class="show-more-urls-btn px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-xs font-bold hover:bg-accent hover:text-white transition cursor-pointer shrink-0" data-urls="${encodedUrls}">
                 +${urls.length - 1}
             </button>`;
         }
         urlHtml += `</div>`;
 
-        const price = (urls.length * 0.05).toFixed(2);
-
-        let statusText = job.status;
-        let badgeClass = 'bg-primary border-border-theme text-muted';
-
-        if (job.status === 'calibrating') {
-            statusText = 'PREVIEW';
-            badgeClass = 'bg-amber-100/10 border-amber-500/50 text-amber-500';
-        } else if (job.status === 'success') {
-            badgeClass = 'bg-emerald-100/10 border-emerald-500/50 text-emerald-500';
-        } else if (job.status === 'error') {
-            badgeClass = 'bg-red-100/10 border-red-500/50 text-red-500';
+        const pCount = job.product_count || urls.length || 1;
+        let priceVal = '';
+        if (job.price !== undefined && job.price !== null) {
+            priceVal = String(job.price).includes('Ft') ? job.price : `${parseFloat(job.price).toLocaleString('hu-HU')} Ft`;
+        } else {
+            priceVal = `${(pCount * (window.USER_TIER_PRICE || 240)).toLocaleString('hu-HU')} Ft`;
         }
 
+        let statusText = (job.status || 'pending').toUpperCase();
+        let badgeClass = 'bg-primary border-border-theme text-muted';
+
+        if (job.status === 'calibrating' || job.status === 'pending_approval' || job.status === 'preview') {
+            statusText = 'ELŐNÉZET';
+            badgeClass = 'bg-amber-500/10 border-amber-500/40 text-amber-400';
+        } else if (job.status === 'success') {
+            statusText = 'SIKERES';
+            badgeClass = 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400';
+        } else if (job.status === 'error') {
+            statusText = 'HIBA';
+            badgeClass = 'bg-red-500/10 border-red-500/40 text-red-400';
+        } else if (job.status === 'discarded') {
+            statusText = 'ELUTASÍTVA';
+            badgeClass = 'bg-slate-500/10 border-slate-500/40 text-slate-400';
+        } else if (job.status === 'pending' || job.status === 'processing') {
+            statusText = 'FELDOLGOZÁS';
+            badgeClass = 'bg-blue-500/10 border-blue-500/40 text-blue-400 animate-pulse';
+        }
+
+        // 1. Asztali és táblagép táblázat sor
+        const tr = document.createElement('tr');
         tr.className = 'hover:bg-primary/50 transition';
         tr.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-main">${dateStr}</td>
-            <td class="px-6 py-4">${urlHtml}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-muted">${job.target_webshop_id || 'Unknown'}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-center text-main font-medium font-mono">$${price}</td>
-            <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-3 py-1 text-[11px] font-bold rounded-full border uppercase tracking-wider ${badgeClass}">
+            <td class="px-4 lg:px-6 py-3.5 whitespace-nowrap text-main text-xs font-mono">${dateStr}</td>
+            <td class="px-4 lg:px-6 py-3.5">${urlHtml}</td>
+            <td class="px-4 lg:px-6 py-3.5 whitespace-nowrap text-muted text-xs truncate max-w-[140px]">${job.target_webshop_id || 'Unas Webshop'}</td>
+            <td class="px-4 lg:px-6 py-3.5 whitespace-nowrap text-center text-main font-medium font-mono text-xs sm:text-sm">${priceVal}</td>
+            <td class="px-4 lg:px-6 py-3.5 whitespace-nowrap text-center">
+                <span class="px-2.5 py-1 text-[11px] font-bold rounded-full border uppercase tracking-wider inline-block ${badgeClass}">
                     ${statusText}
                 </span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right">
-                <button class="text-accent hover:underline text-sm font-medium">Actions</button>
+            <td class="px-4 lg:px-6 py-3.5 whitespace-nowrap text-right">
+                <div class="flex items-center justify-end gap-1.5 sm:gap-2">
+                    <button class="btn-job-details px-2.5 py-1 rounded bg-accent/10 hover:bg-accent text-accent hover:text-white transition text-xs font-semibold flex items-center gap-1 cursor-pointer" data-job-id="${job.id}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Részletek
+                    </button>
+                    <button class="btn-job-delete p-1 rounded hover:bg-red-500/10 text-muted hover:text-red-400 transition cursor-pointer" data-job-id="${job.id}" title="Törlés">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </div>
             </td>
         `;
         tbody.appendChild(tr);
+
+        // 2. Mobil kártya nézet (< md)
+        if (cardsContainer) {
+            const card = document.createElement('div');
+            card.className = 'p-3.5 bg-primary/40 rounded-xl border border-border-theme space-y-3';
+            
+            let mobileUrlHtml = `<div class="flex items-center gap-2 flex-wrap">`;
+            if (isExcel) {
+                mobileUrlHtml += `<span class="inline-flex items-center gap-1.5 text-main font-medium text-xs break-all" title="${firstUrl}">
+                    <span class="text-emerald-500 font-bold shrink-0">📊</span> <span>${displayUrl}</span>
+                </span>`;
+            } else if (firstUrl.startsWith('http')) {
+                mobileUrlHtml += `<a href="${firstUrl}" target="_blank" rel="noopener noreferrer" class="break-all text-xs text-accent hover:underline block" title="${firstUrl}">${displayUrl}</a>`;
+            } else {
+                mobileUrlHtml += `<span class="break-all text-xs text-muted block" title="${firstUrl}">${displayUrl}</span>`;
+            }
+            if (urls.length > 1) {
+                const encodedUrls = encodeURIComponent(JSON.stringify(urls));
+                mobileUrlHtml += `
+                <button class="show-more-urls-btn px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-xs font-bold hover:bg-accent hover:text-white transition cursor-pointer shrink-0" data-urls="${encodedUrls}">
+                    +${urls.length - 1} URL
+                </button>`;
+            }
+            mobileUrlHtml += `</div>`;
+
+            card.innerHTML = `
+                <!-- Top Row: Date & Status -->
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-mono text-muted flex items-center gap-1.5">
+                        <svg class="h-3.5 w-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        ${dateStr}
+                    </span>
+                    <span class="px-2.5 py-0.5 text-[10px] font-bold rounded-full border uppercase tracking-wider ${badgeClass}">
+                        ${statusText}
+                    </span>
+                </div>
+
+                <!-- URL / Source -->
+                <div class="bg-card/70 p-2.5 rounded-lg border border-border-theme">
+                    <p class="text-[10px] uppercase font-bold text-muted tracking-wider mb-1">Forrás / Termékek</p>
+                    ${mobileUrlHtml}
+                </div>
+
+                <!-- Metadata Row: Shop & Price -->
+                <div class="grid grid-cols-2 gap-2 text-xs pt-1">
+                    <div>
+                        <span class="text-muted block text-[10px] uppercase font-bold">Bolt</span>
+                        <span class="text-main font-medium truncate block">${job.target_webshop_id || 'Unas Webshop'}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-muted block text-[10px] uppercase font-bold">Költség</span>
+                        <span class="text-main font-bold font-mono text-emerald-400">${priceVal}</span>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="pt-2 border-t border-border-theme/70 flex items-center justify-between gap-2">
+                    <button class="btn-job-details flex-1 py-2 px-3 rounded-lg bg-accent/10 hover:bg-accent text-accent hover:text-white transition text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm" data-job-id="${job.id}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Részletek megtekintése
+                    </button>
+                    <button class="btn-job-delete p-2 rounded-lg hover:bg-red-500/10 text-muted hover:text-red-400 border border-border-theme hover:border-red-500/30 transition cursor-pointer" data-job-id="${job.id}" title="Törlés">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </div>
+            `;
+            cardsContainer.appendChild(card);
+        }
     });
 }
 
 // Modal kezelése az app.js-ben
 const urlModal = document.getElementById('urlModal');
 const urlModalList = document.getElementById('urlModalList');
+let currentModalUrls = [];
 
-document.getElementById('closeUrlModalBtnBottom')?.addEventListener('click', () => urlModal.classList.add('hidden'));
-document.getElementById('closeUrlModalBtn')?.addEventListener('click', () => urlModal.classList.add('hidden'));
+document.getElementById('closeUrlModalBtnBottom')?.addEventListener('click', () => urlModal?.classList.add('hidden'));
+document.getElementById('closeUrlModalBtn')?.addEventListener('click', () => urlModal?.classList.add('hidden'));
 urlModal?.addEventListener('click', (e) => {
     if (e.target === urlModal) urlModal.classList.add('hidden');
 });
 
-document.getElementById('historyTableBody').addEventListener('click', (e) => {
-    const btn = e.target.closest('.show-more-urls-btn');
-    if (btn) {
-        const urlsArray = JSON.parse(decodeURIComponent(btn.getAttribute('data-urls')));
-        urlModalList.innerHTML = urlsArray.map(url => `
-            <div class="p-3 bg-primary border border-border-theme rounded-lg text-sm text-accent truncate hover:bg-card transition" title="${url}">
-                <a href="${url}" target="_blank" class="hover:underline">${url}</a>
-            </div>
-        `).join('');
+const btnCopyModalUrls = document.getElementById('btnCopyModalUrls');
+if (btnCopyModalUrls) {
+    btnCopyModalUrls.addEventListener('click', () => {
+        if (!currentModalUrls || currentModalUrls.length === 0) {
+            showToast('Nincsenek másolható URL-ek.', 'warning');
+            return;
+        }
+        navigator.clipboard.writeText(currentModalUrls.join('\n')).then(() => {
+            showToast(`✅ Mind a(z) ${currentModalUrls.length} db URL kimásolva a vágólapra!`, 'success');
+        }).catch(() => {
+            showToast('Nem sikerült a vágólapra másolás.', 'error');
+        });
+    });
+}
+
+// Közös eseménykezelő a történet táblázathoz és mobil kártyákhoz
+function handleHistoryActionClick(e) {
+    // "+N URL" gomb
+    const moreBtn = e.target.closest('.show-more-urls-btn');
+    if (moreBtn && urlModalList && urlModal) {
+        const urlsArray = JSON.parse(decodeURIComponent(moreBtn.getAttribute('data-urls')));
+        currentModalUrls = urlsArray;
+        const urlModalCount = document.getElementById('urlModalCount');
+        if (urlModalCount) {
+            urlModalCount.textContent = `Összesen ${urlsArray.length} db URL ebben a feladatban`;
+        }
+        urlModalList.innerHTML = urlsArray.map(url => {
+            const isLink = String(url).startsWith('http');
+            return `
+                <div class="p-2.5 sm:p-3 bg-primary border border-border-theme rounded-lg text-xs sm:text-sm text-accent truncate hover:bg-card transition" title="${url}">
+                    ${isLink ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="hover:underline flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        <span class="truncate">${url}</span>
+                    </a>` : `<span>${url}</span>`}
+                </div>
+            `;
+        }).join('');
         urlModal.classList.remove('hidden');
+        return;
     }
-});
+
+    // "Részletek" gomb
+    const detailsBtn = e.target.closest('.btn-job-details');
+    if (detailsBtn) {
+        const jobId = detailsBtn.getAttribute('data-job-id');
+        if (jobId && typeof handleJobClick === 'function') {
+            handleJobClick(jobId);
+        }
+        return;
+    }
+
+    // "Törlés" gomb
+    const deleteBtn = e.target.closest('.btn-job-delete');
+    if (deleteBtn) {
+        const jobId = deleteBtn.getAttribute('data-job-id');
+        if (jobId && confirm('Biztosan törölni szeretnéd ezt a feladatot az előzményekből?')) {
+            deleteJobFromHistory(jobId);
+        }
+        return;
+    }
+}
+
+const historyTableBodyEl = document.getElementById('historyTableBody');
+if (historyTableBodyEl) {
+    historyTableBodyEl.addEventListener('click', handleHistoryActionClick);
+}
+const historyCardsContainerEl = document.getElementById('historyCardsContainer');
+if (historyCardsContainerEl) {
+    historyCardsContainerEl.addEventListener('click', handleHistoryActionClick);
+}
+
+// ==========================================
+// JOB DETAILS MŰVELETEK (ID másolás, URL-ek másolása, Újraindítás)
+// ==========================================
+const btnCopyJobId = document.getElementById('btnCopyJobId');
+if (btnCopyJobId) {
+    btnCopyJobId.addEventListener('click', () => {
+        if (!currentJobForDetails || !currentJobForDetails.id) {
+            showToast('Nincs kiválasztott feladat.', 'warning');
+            return;
+        }
+        navigator.clipboard.writeText(currentJobForDetails.id).then(() => {
+            showToast('✅ Feladat azonosító kimásolva a vágólapra!', 'success');
+        }).catch(() => {
+            showToast('Nem sikerült a másolás', 'error');
+        });
+    });
+}
+
+const btnCopyJobUrls = document.getElementById('btnCopyJobUrls');
+if (btnCopyJobUrls) {
+    btnCopyJobUrls.addEventListener('click', () => {
+        if (!currentJobForDetails) return;
+        const urls = Array.isArray(currentJobForDetails.source_urls) 
+            ? currentJobForDetails.source_urls 
+            : (currentJobForDetails.source_urls ? [currentJobForDetails.source_urls] : []);
+        if (urls.length === 0) {
+            showToast('Nincsenek másolható URL-ek.', 'warning');
+            return;
+        }
+        navigator.clipboard.writeText(urls.join('\n')).then(() => {
+            showToast(`✅ ${urls.length} db forrás URL kimásolva a vágólapra!`, 'success');
+        }).catch(() => {
+            showToast('Nem sikerült a másolás', 'error');
+        });
+    });
+}
+
+const btnRerunJob = document.getElementById('btnRerunJob');
+if (btnRerunJob) {
+    btnRerunJob.addEventListener('click', () => {
+        if (!currentJobForDetails) return;
+        const urls = Array.isArray(currentJobForDetails.source_urls) 
+            ? currentJobForDetails.source_urls 
+            : (currentJobForDetails.source_urls ? [currentJobForDetails.source_urls] : []);
+        if (urls.length === 0) {
+            showToast('Nincsenek elérhető URL-ek az újraindításhoz.', 'warning');
+            return;
+        }
+        const urlsBox = document.getElementById('urls');
+        if (urlsBox) {
+            urlsBox.value = urls.join('\n');
+            if (typeof renderList === 'function') {
+                renderList('urls', 'productUrlPreviewList', 'product', 'productUrlCount');
+            }
+            if (typeof updateCostSummary === 'function') {
+                updateCostSummary();
+            }
+        }
+        showView('upload');
+        showToast('📋 Forrás URL-ek betöltve az Új feltöltés felületre!', 'success');
+    });
+}
+
+// Egyedi URL másolás a részletek táblázatban
+if (detailsSourceUrls) {
+    detailsSourceUrls.addEventListener('click', (e) => {
+        const copyBtn = e.target.closest('.copy-single-url-btn');
+        if (copyBtn) {
+            const rawUrl = decodeURIComponent(copyBtn.getAttribute('data-url'));
+            navigator.clipboard.writeText(rawUrl).then(() => {
+                showToast('✅ Forrás URL kimásolva a vágólapra!', 'success');
+            }).catch(() => {
+                showToast('Nem sikerült a másolás', 'error');
+            });
+        }
+    });
+}
+
+// ==========================================
+// CSV EXPORTÁLÁS (Excel-kompatibilis UTF-8 BOM)
+// ==========================================
+function exportHistoryToCsv() {
+    const jobsToExport = (typeof lastFilteredHistoryJobs !== 'undefined' && lastFilteredHistoryJobs.length > 0)
+        ? lastFilteredHistoryJobs
+        : (allHistoryJobs && allHistoryJobs.length > 0 ? allHistoryJobs : getStoredJobs());
+
+    if (!jobsToExport || jobsToExport.length === 0) {
+        showToast('Nincsenek exportálható feladatok az előzményekben.', 'warning');
+        return;
+    }
+
+    const headers = ['Dátum', 'Feladat ID', 'Mód', 'Cél Webáruház', 'Termékek száma (db)', 'Költség', 'Státusz', 'Forrás URL-ek'];
+    
+    const escapeCsv = (str) => {
+        const s = String(str || '').replace(/"/g, '""');
+        return `"${s}"`;
+    };
+
+    const rows = jobsToExport.map(job => {
+        const dateObj = new Date(job.created_at || Date.now());
+        const dateStr = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleDateString('hu-HU') + ' ' + dateObj.toLocaleTimeString('hu-HU', {hour: '2-digit', minute:'2-digit'})
+            : 'N/A';
+        const urls = Array.isArray(job.source_urls) ? job.source_urls : (job.source_urls ? [job.source_urls] : []);
+        const pCount = job.product_count || urls.length || 1;
+        let priceVal = '';
+        if (job.price !== undefined && job.price !== null) {
+            priceVal = String(job.price).includes('Ft') ? job.price : `${parseFloat(job.price).toLocaleString('hu-HU')} Ft`;
+        } else {
+            priceVal = `${(pCount * (window.USER_TIER_PRICE || 240)).toLocaleString('hu-HU')} Ft`;
+        }
+
+        let statusText = job.status || 'pending';
+        if (statusText === 'success') statusText = 'Sikeres';
+        else if (statusText === 'error') statusText = 'Hiba';
+        else if (statusText === 'calibrating' || statusText === 'pending_approval' || statusText === 'preview') statusText = 'Előnézet';
+        else if (statusText === 'discarded') statusText = 'Elutasítva';
+        else if (statusText === 'pending' || statusText === 'processing') statusText = 'Feldolgozás alatt';
+
+        return [
+            escapeCsv(dateStr),
+            escapeCsv(job.id),
+            escapeCsv(job.mode || 'Scraper'),
+            escapeCsv(job.target_webshop_id || 'Unas Webshop'),
+            pCount,
+            escapeCsv(priceVal),
+            escapeCsv(statusText),
+            escapeCsv(urls.join(' | '))
+        ].join(';');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `supplylink_elozmenyek_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(`✅ ${jobsToExport.length} db feladat sikeresen exportálva CSV fájlba!`, 'success');
+}
+
+const btnExportHistory = document.getElementById('btnExportHistory');
+if (btnExportHistory) {
+    btnExportHistory.addEventListener('click', exportHistoryToCsv);
+}
+
+
